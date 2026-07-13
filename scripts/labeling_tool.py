@@ -10,10 +10,13 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CROPPED_DIR = PROJECT_ROOT / "data" / "cropped_fields"
+CROPPED_PENDING_DIR = PROJECT_ROOT / "data" / "cropped_fields_pending"
 CRNN_DIR = PROJECT_ROOT / "data" / "crnn_dataset"
 
 LABELS_PATH = CRNN_DIR / "labels.csv"
 SKIPPED_PATH = CRNN_DIR / "skipped.csv"
+PENDING_LABELS_PATH = CRNN_DIR / "pending_labels.csv"
+PENDING_SKIPPED_PATH = CRNN_DIR / "pending_skipped.csv"
 
 # Streamlit çalıştırır her oturumu ayrı bir thread'de; birden fazla kişi
 # aynı anda kaydettiğinde labels.csv/skipped.csv'nin oku-değiştir-yaz
@@ -53,11 +56,12 @@ def infer_split_from_filename(file_name: str) -> str:
     return "unknown"
 
 
-def collect_crop_images() -> pd.DataFrame:
+def collect_crop_images(dataset: str = "main") -> pd.DataFrame:
     rows = []
+    base_dir = CROPPED_PENDING_DIR if dataset == "pending" else CROPPED_DIR
 
     for field_type in FIELD_TYPES:
-        field_dir = CROPPED_DIR / field_type
+        field_dir = base_dir / field_type
 
         if not field_dir.exists():
             continue
@@ -71,6 +75,7 @@ def collect_crop_images() -> pd.DataFrame:
                     "type": field_type,
                     "split": infer_split_from_filename(image_path.name),
                     "assigned_to": assign_annotator(relative_path),
+                    "dataset": dataset,
                 })
 
     return pd.DataFrame(rows)
@@ -89,7 +94,7 @@ def save_csv_safely(df: pd.DataFrame, path: Path):
     temp_path.replace(path)
 
 
-def load_labels() -> pd.DataFrame:
+def load_labels(dataset: str = "main") -> pd.DataFrame:
     columns = [
         "image_path",
         "label",
@@ -99,10 +104,11 @@ def load_labels() -> pd.DataFrame:
         "annotator",
         "annotated_at",
     ]
-    return load_csv(LABELS_PATH, columns)
+    path = PENDING_LABELS_PATH if dataset == "pending" else LABELS_PATH
+    return load_csv(path, columns)
 
 
-def load_skipped() -> pd.DataFrame:
+def load_skipped(dataset: str = "main") -> pd.DataFrame:
     columns = [
         "image_path",
         "type",
@@ -112,7 +118,8 @@ def load_skipped() -> pd.DataFrame:
         "annotator",
         "skipped_at",
     ]
-    return load_csv(SKIPPED_PATH, columns)
+    path = PENDING_SKIPPED_PATH if dataset == "pending" else SKIPPED_PATH
+    return load_csv(path, columns)
 
 
 def validate_label(field_type: str, label: str):
@@ -137,9 +144,10 @@ def validate_label(field_type: str, label: str):
     return True, ""
 
 
-def save_label(row: dict, label: str, annotator: str):
+def save_label(row: dict, label: str, annotator: str, dataset: str = "main"):
     with _CSV_LOCK:
-        labels_df = load_labels()
+        labels_df = load_labels(dataset)
+        path = PENDING_LABELS_PATH if dataset == "pending" else LABELS_PATH
 
         new_row = {
             "image_path": row["image_path"],
@@ -156,12 +164,13 @@ def save_label(row: dict, label: str, annotator: str):
         else:
             labels_df = pd.concat([labels_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        save_csv_safely(labels_df, LABELS_PATH)
+        save_csv_safely(labels_df, path)
 
 
-def save_skip(row: dict, reason: str, annotator: str):
+def save_skip(row: dict, reason: str, annotator: str, dataset: str = "main"):
     with _CSV_LOCK:
-        skipped_df = load_skipped()
+        skipped_df = load_skipped(dataset)
+        path = PENDING_SKIPPED_PATH if dataset == "pending" else SKIPPED_PATH
 
         new_row = {
             "image_path": row["image_path"],
@@ -178,7 +187,7 @@ def save_skip(row: dict, reason: str, annotator: str):
         else:
             skipped_df = pd.concat([skipped_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        save_csv_safely(skipped_df, SKIPPED_PATH)
+        save_csv_safely(skipped_df, path)
 
 
 def rerun_app():
@@ -199,17 +208,26 @@ def main():
     st.title("OCR Crop Labeling Tool")
     st.caption("Kırpılmış öğrenci numarası ve not görsellerini etiketleme aracı")
 
-    all_images_df = collect_crop_images()
-    labels_df = load_labels()
-    skipped_df = load_skipped()
-
-    if all_images_df.empty:
-        st.error("Hiç crop görseli bulunamadı. data/cropped_fields klasörünü kontrol et.")
-        return
-
     with st.sidebar:
         st.header("Ayarlar")
 
+        dataset = st.selectbox(
+            "Aktif Dataset",
+            ["Mevcut Veriler", "Yeni Veriler (Kontrol Bekleyen)"],
+            help="Mevcut: 800 onaylı görsel | Yeni: 195 kontrol bekleyen görsel"
+        )
+        dataset_key = "pending" if "Yeni" in dataset else "main"
+
+    all_images_df = collect_crop_images(dataset_key)
+    labels_df = load_labels(dataset_key)
+    skipped_df = load_skipped(dataset_key)
+
+    if all_images_df.empty:
+        cropped_path = CROPPED_PENDING_DIR if dataset_key == "pending" else CROPPED_DIR
+        st.error(f"Hiç crop görseli bulunamadı. {cropped_path} klasörünü kontrol et.")
+        return
+
+    with st.sidebar:
         annotator = st.selectbox("Etiketleyen kişi", ANNOTATORS)
 
         selected_type = st.selectbox(
@@ -221,9 +239,16 @@ def main():
 
         st.divider()
 
-        st.write("Beklenen klasörler:")
-        st.code("data/cropped_fields/ogrenci_numara")
-        st.code("data/cropped_fields/not")
+        if dataset_key == "pending":
+            st.write("Aktif klasörler (Yeni Veriler):")
+            st.code("data/cropped_fields_pending/ogrenci_numara")
+            st.code("data/cropped_fields_pending/not")
+            st.caption(f"Not: {PENDING_LABELS_PATH}")
+        else:
+            st.write("Aktif klasörler (Mevcut Veriler):")
+            st.code("data/cropped_fields/ogrenci_numara")
+            st.code("data/cropped_fields/not")
+            st.caption(f"Not: {LABELS_PATH}")
 
     type_filtered_df = all_images_df.copy()
 
@@ -342,7 +367,7 @@ def main():
                 if not is_valid:
                     st.error(message)
                 else:
-                    save_label(current_row, label, annotator)
+                    save_label(current_row, label, annotator, dataset_key)
                     st.success("Kaydedildi.")
                     rerun_app()
 
@@ -351,7 +376,7 @@ def main():
             skip_button = st.form_submit_button("Bu görseli atla")
 
             if skip_button:
-                save_skip(current_row, skip_reason, annotator)
+                save_skip(current_row, skip_reason, annotator, dataset_key)
                 st.warning("Görsel atlandı.")
                 rerun_app()
 
@@ -403,7 +428,7 @@ def main():
                     if not is_valid:
                         st.error(message)
                     else:
-                        save_label(review_row, reviewed_label, annotator)
+                        save_label(review_row, reviewed_label, annotator, dataset_key)
                         st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
                         rerun_app()
 
