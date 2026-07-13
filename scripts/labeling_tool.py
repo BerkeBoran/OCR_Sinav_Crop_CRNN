@@ -316,6 +316,48 @@ def main():
     else:
         st.dataframe(labels_df.tail(10), use_container_width=True)
 
+    st.divider()
+
+    st.subheader("Girilen Bir Etiketi Düzelt")
+
+    own_labeled_df = labels_df[labels_df["image_path"].isin(set(filtered_df["image_path"]))]
+
+    if own_labeled_df.empty:
+        st.info("Düzeltilecek etiketli görsel yok.")
+    else:
+        file_names = ["Seçiniz"] + own_labeled_df["file_name"].tolist()
+        selected_file = st.selectbox("Düzeltilecek görsel", file_names, key="correction_select")
+
+        if selected_file != "Seçiniz":
+            correction_row = own_labeled_df[own_labeled_df["file_name"] == selected_file].iloc[0].to_dict()
+            correction_abs_path = PROJECT_ROOT / correction_row["image_path"]
+
+            fix_col1, fix_col2 = st.columns([2, 1])
+
+            with fix_col1:
+                if correction_abs_path.exists():
+                    st.image(Image.open(correction_abs_path), caption=selected_file, use_container_width=True)
+                else:
+                    st.error(f"Görsel bulunamadı: {correction_abs_path}")
+
+            with fix_col2:
+                st.write("Mevcut değer:")
+                st.code(correction_row["label"])
+
+                with st.form("correction_form"):
+                    new_label = st.text_input("Doğru değer", value=correction_row["label"])
+                    fix_button = st.form_submit_button("Düzeltmeyi kaydet")
+
+                    if fix_button:
+                        is_valid, message = validate_label(correction_row["type"], new_label)
+
+                        if not is_valid:
+                            st.error(message)
+                        else:
+                            save_label(correction_row, new_label, annotator)
+                            st.success("Düzeltildi.")
+                            rerun_app()
+
     st.subheader("Dosya Konumları")
 
     st.code(f"labels.csv: {LABELS_PATH}")
