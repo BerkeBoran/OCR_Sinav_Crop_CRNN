@@ -225,26 +225,54 @@ def main():
         st.code("data/cropped_fields/ogrenci_numara")
         st.code("data/cropped_fields/not")
 
-    filtered_df = all_images_df[all_images_df["assigned_to"] == annotator].copy()
+    type_filtered_df = all_images_df.copy()
 
     if selected_type != "Tümü":
-        filtered_df = filtered_df[filtered_df["type"] == selected_type]
+        type_filtered_df = type_filtered_df[type_filtered_df["type"] == selected_type]
 
     labeled_paths = set(labels_df["image_path"].tolist()) if not labels_df.empty else set()
     skipped_paths = set(skipped_df["image_path"].tolist()) if not skipped_df.empty else set()
 
-    if include_skipped:
-        remaining_df = filtered_df[~filtered_df["image_path"].isin(labeled_paths)]
-    else:
-        remaining_df = filtered_df[
-            ~filtered_df["image_path"].isin(labeled_paths)
-            & ~filtered_df["image_path"].isin(skipped_paths)
+    def remaining_of(df):
+        if include_skipped:
+            return df[~df["image_path"].isin(labeled_paths)]
+
+        return df[
+            ~df["image_path"].isin(labeled_paths)
+            & ~df["image_path"].isin(skipped_paths)
         ]
+
+    own_df = type_filtered_df[type_filtered_df["assigned_to"] == annotator]
+    own_remaining_df = remaining_of(own_df)
+
+    helping = None
+
+    if not own_remaining_df.empty:
+        filtered_df = own_df
+        remaining_df = own_remaining_df
+    else:
+        donor_counts = {
+            other: len(remaining_of(type_filtered_df[type_filtered_df["assigned_to"] == other]))
+            for other in ANNOTATORS
+            if other != annotator
+        }
+        donor = max(donor_counts, key=donor_counts.get) if donor_counts else None
+
+        if donor and donor_counts[donor] > 0:
+            helping = donor
+            filtered_df = type_filtered_df[type_filtered_df["assigned_to"] == donor]
+            remaining_df = remaining_of(filtered_df)
+        else:
+            filtered_df = own_df
+            remaining_df = own_remaining_df
 
     total_count = len(filtered_df)
     labeled_count = len(filtered_df[filtered_df["image_path"].isin(labeled_paths)])
     skipped_count = len(filtered_df[filtered_df["image_path"].isin(skipped_paths)])
     remaining_count = len(remaining_df)
+
+    if helping:
+        st.info(f"Kendi görsellerin bitti — {helping} kişisinin kalanlarına yardım ediyorsun.")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -264,7 +292,11 @@ def main():
         st.write(f"labels.csv konumu: `{LABELS_PATH}`")
         return
 
-    current_row = remaining_df.iloc[0].to_dict()
+    # Yardım modunda birden fazla kişi aynı kalan listesine bakabilir;
+    # herkesin aynı ilk görseli almaması için kişiye göre sabit bir
+    # başlangıç noktası seçilir.
+    start_offset = int(hashlib.md5(annotator.encode("utf-8")).hexdigest(), 16) % len(remaining_df)
+    current_row = remaining_df.iloc[start_offset].to_dict()
     image_abs_path = PROJECT_ROOT / current_row["image_path"]
 
     left_col, right_col = st.columns([2, 1])
@@ -328,7 +360,10 @@ def main():
 
     st.subheader("Girilen Bir Etiketi Düzelt")
 
-    own_labeled_df = labels_df[labels_df["image_path"].isin(set(filtered_df["image_path"]))]
+    own_labeled_df = labels_df[labels_df["annotator"] == annotator]
+
+    if selected_type != "Tümü":
+        own_labeled_df = own_labeled_df[own_labeled_df["type"] == selected_type]
 
     if own_labeled_df.empty:
         st.info("Düzeltilecek etiketli görsel yok.")
