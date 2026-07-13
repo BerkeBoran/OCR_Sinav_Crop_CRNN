@@ -407,7 +407,13 @@ def main():
                         st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
                         rerun_app()
 
-            if st.button("Değiştirmeden sıradakine geç"):
+            nav_prev, nav_next = st.columns(2)
+
+            if nav_prev.button("Önceki"):
+                st.session_state["review_index"] = (review_index - 1) % len(own_labeled_df)
+                rerun_app()
+
+            if nav_next.button("Değiştirmeden sıradakine geç"):
                 st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
                 rerun_app()
 
