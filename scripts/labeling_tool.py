@@ -366,48 +366,50 @@ def main():
 
     st.divider()
 
-    st.subheader("Girilen Bir Etiketi Düzelt")
+    st.subheader("Girilen Değerleri Kontrol Et")
 
     own_labeled_df = labels_df[labels_df["annotator"] == annotator]
 
     if selected_type != "Tümü":
         own_labeled_df = own_labeled_df[own_labeled_df["type"] == selected_type]
 
+    own_labeled_df = own_labeled_df.reset_index(drop=True)
+
     if own_labeled_df.empty:
-        st.info("Düzeltilecek etiketli görsel yok.")
+        st.info("Kontrol edilecek etiketli görsel yok.")
     else:
-        file_names = ["Seçiniz"] + own_labeled_df["file_name"].tolist()
-        selected_file = st.selectbox("Düzeltilecek görsel", file_names, key="correction_select")
+        review_index = st.session_state.get("review_index", 0) % len(own_labeled_df)
+        review_row = own_labeled_df.iloc[review_index].to_dict()
+        review_abs_path = PROJECT_ROOT / review_row["image_path"]
 
-        if selected_file != "Seçiniz":
-            correction_row = own_labeled_df[own_labeled_df["file_name"] == selected_file].iloc[0].to_dict()
-            correction_abs_path = PROJECT_ROOT / correction_row["image_path"]
+        st.caption(f"{review_index + 1} / {len(own_labeled_df)}")
 
-            fix_col1, fix_col2 = st.columns([2, 1])
+        review_col1, review_col2 = st.columns([2, 1])
 
-            with fix_col1:
-                if correction_abs_path.exists():
-                    st.image(Image.open(correction_abs_path), caption=selected_file, use_container_width=True)
-                else:
-                    st.error(f"Görsel bulunamadı: {correction_abs_path}")
+        with review_col1:
+            if review_abs_path.exists():
+                st.image(Image.open(review_abs_path), caption=review_row["file_name"], use_container_width=True)
+            else:
+                st.error(f"Görsel bulunamadı: {review_abs_path}")
 
-            with fix_col2:
-                st.write("Mevcut değer:")
-                st.code(correction_row["label"])
+        with review_col2:
+            with st.form("review_form"):
+                reviewed_label = st.text_input("Değer", value=review_row["label"])
+                save_and_next = st.form_submit_button("Kaydet ve sıradakine geç")
 
-                with st.form("correction_form"):
-                    new_label = st.text_input("Doğru değer", value=correction_row["label"])
-                    fix_button = st.form_submit_button("Düzeltmeyi kaydet")
+                if save_and_next:
+                    is_valid, message = validate_label(review_row["type"], reviewed_label)
 
-                    if fix_button:
-                        is_valid, message = validate_label(correction_row["type"], new_label)
+                    if not is_valid:
+                        st.error(message)
+                    else:
+                        save_label(review_row, reviewed_label, annotator)
+                        st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
+                        rerun_app()
 
-                        if not is_valid:
-                            st.error(message)
-                        else:
-                            save_label(correction_row, new_label, annotator)
-                            st.success("Düzeltildi.")
-                            rerun_app()
+            if st.button("Değiştirmeden sıradakine geç"):
+                st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
+                rerun_app()
 
     st.subheader("Dosya Konumları")
 
