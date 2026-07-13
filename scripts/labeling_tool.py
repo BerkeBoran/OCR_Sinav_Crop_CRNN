@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -16,6 +17,16 @@ SKIPPED_PATH = CRNN_DIR / "skipped.csv"
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 
 FIELD_TYPES = ["ogrenci_numara", "not"]
+
+# Her görsel bu listedeki sıraya göre sabit bir kişiye atanır;
+# sıralamayı değiştirmek atamaları da değiştirir.
+ANNOTATORS = ["Mehmet", "Berke", "Aslı", "Sevde"]
+
+
+def assign_annotator(image_path: str) -> str:
+    digest = hashlib.md5(image_path.encode("utf-8")).hexdigest()
+    index = int(digest, 16) % len(ANNOTATORS)
+    return ANNOTATORS[index]
 
 
 def ensure_dirs():
@@ -47,11 +58,13 @@ def collect_crop_images() -> pd.DataFrame:
 
         for extension in IMAGE_EXTENSIONS:
             for image_path in sorted(field_dir.glob(f"*{extension}")):
+                relative_path = to_relative_path(image_path)
                 rows.append({
-                    "image_path": to_relative_path(image_path),
+                    "image_path": relative_path,
                     "file_name": image_path.name,
                     "type": field_type,
                     "split": infer_split_from_filename(image_path.name),
+                    "assigned_to": assign_annotator(relative_path),
                 })
 
     return pd.DataFrame(rows)
@@ -189,7 +202,7 @@ def main():
     with st.sidebar:
         st.header("Ayarlar")
 
-        annotator = st.text_input("Etiketleyen kişi", value="mehmet")
+        annotator = st.selectbox("Etiketleyen kişi", ANNOTATORS)
 
         selected_type = st.selectbox(
             "Görsel türü",
@@ -204,7 +217,7 @@ def main():
         st.code("data/cropped_fields/ogrenci_numara")
         st.code("data/cropped_fields/not")
 
-    filtered_df = all_images_df.copy()
+    filtered_df = all_images_df[all_images_df["assigned_to"] == annotator].copy()
 
     if selected_type != "Tümü":
         filtered_df = filtered_df[filtered_df["type"] == selected_type]
