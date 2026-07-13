@@ -292,11 +292,19 @@ def main():
         st.write(f"labels.csv konumu: `{LABELS_PATH}`")
         return
 
-    # Yardım modunda birden fazla kişi aynı kalan listesine bakabilir;
-    # herkesin aynı ilk görseli almaması için kişiye göre sabit bir
-    # başlangıç noktası seçilir.
-    start_offset = int(hashlib.md5(annotator.encode("utf-8")).hexdigest(), 16) % len(remaining_df)
-    current_row = remaining_df.iloc[start_offset].to_dict()
+    # Gösterilen görsel, bu tarayıcı oturumuna sabitlenir; böylece başka
+    # biri bir yerlerde kayıt yapıp kalan listesini değiştirse bile görsel
+    # bu kullanıcının altından değişmez. Sabitlenen görsel etiketlenip/
+    # atlanıp kalan listeden düşünce (bu kullanıcı ya da yardım modunda
+    # aynı kuyruğa bakan başka biri tarafından) yeni bir görsel seçilir.
+    remaining_paths = set(remaining_df["image_path"].tolist())
+    pinned_path = st.session_state.get("current_image_path")
+
+    if pinned_path not in remaining_paths:
+        pinned_path = remaining_df.sample(n=1).iloc[0]["image_path"]
+        st.session_state["current_image_path"] = pinned_path
+
+    current_row = remaining_df[remaining_df["image_path"] == pinned_path].iloc[0].to_dict()
     image_abs_path = PROJECT_ROOT / current_row["image_path"]
 
     left_col, right_col = st.columns([2, 1])
