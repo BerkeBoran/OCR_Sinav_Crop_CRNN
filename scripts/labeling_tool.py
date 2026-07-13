@@ -417,6 +417,20 @@ def main():
                 st.session_state["review_index"] = (review_index + 1) % len(own_labeled_df)
                 rerun_app()
 
+            jump_input, jump_go = st.columns(2)
+
+            jump_target = jump_input.number_input(
+                "Fotoğraf no",
+                min_value=1,
+                max_value=len(own_labeled_df),
+                value=review_index + 1,
+                step=1,
+            )
+
+            if jump_go.button("Git"):
+                st.session_state["review_index"] = int(jump_target) - 1
+                rerun_app()
+
     st.subheader("Dosya Konumları")
 
     st.code(f"labels.csv: {LABELS_PATH}")
