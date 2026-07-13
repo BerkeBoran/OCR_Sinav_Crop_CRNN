@@ -1,4 +1,5 @@
 import hashlib
+import threading
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -13,6 +14,11 @@ CRNN_DIR = PROJECT_ROOT / "data" / "crnn_dataset"
 
 LABELS_PATH = CRNN_DIR / "labels.csv"
 SKIPPED_PATH = CRNN_DIR / "skipped.csv"
+
+# Streamlit çalıştırır her oturumu ayrı bir thread'de; birden fazla kişi
+# aynı anda kaydettiğinde labels.csv/skipped.csv'nin oku-değiştir-yaz
+# döngüsü çakışmasın diye bu kilit kullanılır.
+_CSV_LOCK = threading.Lock()
 
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"]
 
@@ -132,45 +138,47 @@ def validate_label(field_type: str, label: str):
 
 
 def save_label(row: dict, label: str, annotator: str):
-    labels_df = load_labels()
+    with _CSV_LOCK:
+        labels_df = load_labels()
 
-    new_row = {
-        "image_path": row["image_path"],
-        "label": label.strip(),
-        "type": row["type"],
-        "file_name": row["file_name"],
-        "split": row["split"],
-        "annotator": annotator,
-        "annotated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
+        new_row = {
+            "image_path": row["image_path"],
+            "label": label.strip(),
+            "type": row["type"],
+            "file_name": row["file_name"],
+            "split": row["split"],
+            "annotator": annotator,
+            "annotated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
-    if not labels_df.empty and row["image_path"] in labels_df["image_path"].values:
-        labels_df.loc[labels_df["image_path"] == row["image_path"], list(new_row.keys())] = list(new_row.values())
-    else:
-        labels_df = pd.concat([labels_df, pd.DataFrame([new_row])], ignore_index=True)
+        if not labels_df.empty and row["image_path"] in labels_df["image_path"].values:
+            labels_df.loc[labels_df["image_path"] == row["image_path"], list(new_row.keys())] = list(new_row.values())
+        else:
+            labels_df = pd.concat([labels_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    save_csv_safely(labels_df, LABELS_PATH)
+        save_csv_safely(labels_df, LABELS_PATH)
 
 
 def save_skip(row: dict, reason: str, annotator: str):
-    skipped_df = load_skipped()
+    with _CSV_LOCK:
+        skipped_df = load_skipped()
 
-    new_row = {
-        "image_path": row["image_path"],
-        "type": row["type"],
-        "file_name": row["file_name"],
-        "split": row["split"],
-        "reason": reason.strip(),
-        "annotator": annotator,
-        "skipped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
+        new_row = {
+            "image_path": row["image_path"],
+            "type": row["type"],
+            "file_name": row["file_name"],
+            "split": row["split"],
+            "reason": reason.strip(),
+            "annotator": annotator,
+            "skipped_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
-    if not skipped_df.empty and row["image_path"] in skipped_df["image_path"].values:
-        skipped_df.loc[skipped_df["image_path"] == row["image_path"], list(new_row.keys())] = list(new_row.values())
-    else:
-        skipped_df = pd.concat([skipped_df, pd.DataFrame([new_row])], ignore_index=True)
+        if not skipped_df.empty and row["image_path"] in skipped_df["image_path"].values:
+            skipped_df.loc[skipped_df["image_path"] == row["image_path"], list(new_row.keys())] = list(new_row.values())
+        else:
+            skipped_df = pd.concat([skipped_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    save_csv_safely(skipped_df, SKIPPED_PATH)
+        save_csv_safely(skipped_df, SKIPPED_PATH)
 
 
 def rerun_app():
