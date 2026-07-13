@@ -1,0 +1,9 @@
+opencv-python
+pyyaml
+numpy
+pandas
+pillow
+pillow-heif
+matplotlib
+jupyter
+streamlit

@@ -1,0 +1,5 @@
+image_path,type,file_name,split,reason,annotator,skipped_at
+data/cropped_fields/ogrenci_numara/train_IMG_1461_HEIC.rf.dr8j8A0mpfajch70po7b_ogrenci_numara.jpg,ogrenci_numara,train_IMG_1461_HEIC.rf.dr8j8A0mpfajch70po7b_ogrenci_numara.jpg,train,okunamıyor veya hatalı crop,mehmet,2026-07-12 17:47:37
+data/cropped_fields/ogrenci_numara/train_IMG_1559_jpg.rf.7KjZN7FMW9ajnygtzEPF_ogrenci_numara.jpg,ogrenci_numara,train_IMG_1559_jpg.rf.7KjZN7FMW9ajnygtzEPF_ogrenci_numara.jpg,train,Öğrenci Numarası 9 ya da 10 hanli olmalıdır. Hatası verdi,mehmet,2026-07-12 17:43:29
+data/cropped_fields/ogrenci_numara/train_IMG_1713_jpg.rf.N6X9rh7N9umpPzokTcGf_ogrenci_numara.jpg,ogrenci_numara,train_IMG_1713_jpg.rf.N6X9rh7N9umpPzokTcGf_ogrenci_numara.jpg,train,okunamıyor veya hatalı crop,mehmet,2026-07-12 18:19:28
+data/cropped_fields/ogrenci_numara/train_IMG_1732_jpg.rf.igzGvcaikQhPSjimYxKc_ogrenci_numara.jpg,ogrenci_numara,train_IMG_1732_jpg.rf.igzGvcaikQhPSjimYxKc_ogrenci_numara.jpg,train,okunamıyor,mehmet,2026-07-12 18:29:28
