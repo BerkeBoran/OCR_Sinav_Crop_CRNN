@@ -2,7 +2,8 @@
 
 # Veri ayarları
 data_dir: data
-img_width: 128
+# 10-12 haneli numaraların rakamları okunabilsin diye geniş tutuldu
+img_width: 256
 img_height: 32
 
 # Model ayarları
@@ -10,15 +11,15 @@ cnn_channels: [32, 64, 128]
 rnn_hidden: 256
 
 # Eğitim ayarları
-num_epochs: 50
+num_epochs: 300
 batch_size: 32
-learning_rate: 0.001
+learning_rate: 0.0003  # ön-eğitilmiş modelden ince ayar için düşük tutuldu
 weight_decay: 0.0001
 
 # Optimizer ayarları
 optimizer: adam
 scheduler: ReduceLROnPlateau
-scheduler_patience: 5
+scheduler_patience: 15
 scheduler_factor: 0.5
 
 # DataLoader ayarları

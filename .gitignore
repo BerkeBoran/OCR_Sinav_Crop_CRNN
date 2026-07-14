@@ -25,6 +25,11 @@ Thumbs.db
 logs/
 models/*.pth
 models/*.pt
+# Ön-eğitilmiş model repoya dahil — ekip pretrain adımını atlayabilsin
+!models/crnn_pretrained.pth
+# Eğitilmiş final model repoya dahil — canlı site (VPS) git pull ile alır
+!models/crnn_best_model.pth
 
 # Büyük ham veri (repo'ya dahil edilmez)
 data/roboflow_export/
+data/mnist/

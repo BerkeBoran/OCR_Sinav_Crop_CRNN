@@ -12,7 +12,7 @@ Veri seti repoya dahildir (1598 etiketli görüntü + hazır train/val/test spli
 git clone <repo-url>
 cd OCR_Sinav_Crop_CRNN
 bash setup_environment.sh        # venv oluşturur + paketleri kurar
-python3 training/train_crnn.py  # eğitimi başlat
+python3 training/train_crnn.py  # eğitimi başlat (ince ayar)
 ```
 
 ### Windows
@@ -23,6 +23,11 @@ cd OCR_Sinav_Crop_CRNN
 setup_environment.bat
 python training\train_crnn.py
 ```
+
+> **Not:** Repoda sentetik verilerle ön-eğitilmiş bir model (`models/crnn_pretrained.pth`)
+> hazır gelir; `train_crnn.py` bunu otomatik yükleyip gerçek verilerle ince ayar yapar.
+> Ön-eğitimi kendiniz tekrarlamak isterseniz (MNIST ~11 MB indirir, ~20 dk):
+> `python3 training/pretrain_synthetic.py`
 
 > Sonraki oturumlarda sadece venv'i etkinleştirin:
 > `source venv/bin/activate` (macOS/Linux) veya `venv\Scripts\activate` (Windows)

@@ -227,6 +227,16 @@ class Trainer:
         self.model = CRNN(rnn_hidden=self.config.get('rnn_hidden', 256)).to(self.device)
         logger.info(f"Model parametreleri: {sum(p.numel() for p in self.model.parameters()):,}")
 
+        # Sentetik ön-eğitilmiş model varsa oradan başla (transfer learning)
+        pretrained_path = Path(self.config.get('pretrained_checkpoint', 'models/crnn_pretrained.pth'))
+        if pretrained_path.exists():
+            ckpt = torch.load(pretrained_path, map_location=self.device, weights_only=False)
+            self.model.load_state_dict(ckpt['model_state'])
+            logger.info(f"✓ Ön-eğitilmiş model yüklendi: {pretrained_path}")
+        else:
+            logger.info("Ön-eğitilmiş model yok, sıfırdan eğitilecek "
+                        "(önce 'python3 training/pretrain_synthetic.py' çalıştırmak doğruluğu artırır)")
+
         self.setup_dataloaders()
 
         self.criterion = nn.CTCLoss(blank=BLANK_IDX, zero_infinity=True)
@@ -250,8 +260,26 @@ class Trainer:
         data_dir = Path(self.config['data_dir'])
         processed_dir = data_dir / 'processed'
 
-        transform = transforms.Compose([
-            transforms.Resize((self.config['img_height'], self.config['img_width'])),
+        size = (self.config['img_height'], self.config['img_width'])
+
+        # Eğitim: veri çoğaltma (augmentation) — küçük veri setinde ezberlemeyi önler
+        train_transform = transforms.Compose([
+            transforms.Resize(size),
+            transforms.RandomAffine(
+                degrees=2,
+                translate=(0.03, 0.06),
+                scale=(0.92, 1.08),
+                shear=2,
+                fill=255
+            ),
+            transforms.ColorJitter(brightness=0.3, contrast=0.3),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5], std=[0.5])
+        ])
+
+        # Validation: çoğaltma yok, sadece normalize
+        val_transform = transforms.Compose([
+            transforms.Resize(size),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
@@ -259,12 +287,12 @@ class Trainer:
         train_dataset = CRNNDataset(
             processed_dir / 'train.csv',
             data_dir / 'cropped_fields',
-            transform=transform
+            transform=train_transform
         )
         val_dataset = CRNNDataset(
             processed_dir / 'val.csv',
             data_dir / 'cropped_fields',
-            transform=transform
+            transform=val_transform
         )
 
         num_workers = self.config.get('num_workers', 2)
@@ -438,11 +466,11 @@ class Trainer:
         models_dir = Path('models')
         models_dir.mkdir(exist_ok=True)
 
+        # Optimizer state kaydedilmez: dosya küçük kalır (git'e ve VPS'e uygun)
         checkpoint = {
             'epoch': epoch,
             'val_acc': val_acc,
             'model_state': self.model.state_dict(),
-            'optimizer_state': self.optimizer.state_dict(),
             'config': self.config,
             'charset': CHARSET,
         }
