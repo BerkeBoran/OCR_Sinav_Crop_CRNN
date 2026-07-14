@@ -1,23 +1,36 @@
+"""
+CRNN (CNN + BiLSTM + CTC) modeli ile rakam dizisi tanıma eğitimi.
+
+Öğrenci numarası ve not alanlarındaki rakam dizilerini karakter karakter okur.
+CTC loss sayesinde model eğitimde görmediği numaraları da okuyabilir.
+MacBook (MPS), NVIDIA GPU (CUDA) ve CPU destekler.
+"""
+
 import os
+
+# MPS'de desteklenmeyen operasyonlar için CPU fallback (torch import'undan önce)
+os.environ.setdefault('PYTORCH_ENABLE_MPS_FALLBACK', '1')
+
 import sys
 import yaml
+import json
+import logging
+import platform
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
-from pathlib import Path
-import logging
-from datetime import datetime
-import json
-import numpy as np
 from PIL import Image
-import pandas as pd
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-import platform
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+Path('logs').mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,106 +42,167 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Karakter seti: rakamlar. Index 0 CTC blank için ayrılmıştır.
+CHARSET = '0123456789'
+BLANK_IDX = 0
+NUM_CLASSES = len(CHARSET) + 1  # +1 blank
+
+CHAR_TO_IDX = {c: i + 1 for i, c in enumerate(CHARSET)}
+IDX_TO_CHAR = {i + 1: c for i, c in enumerate(CHARSET)}
+
+
+def encode_label(label):
+    """Label string'ini indeks dizisine çevir"""
+    return [CHAR_TO_IDX[c] for c in str(label)]
+
+
+def decode_greedy(logits):
+    """
+    CTC greedy decode: (T, N, C) logits → tahmin string listesi.
+    Ardışık tekrarları birleştir, blank'leri at.
+    """
+    preds = logits.argmax(dim=2).permute(1, 0)  # (N, T)
+    results = []
+    for seq in preds:
+        chars = []
+        prev = BLANK_IDX
+        for idx in seq.tolist():
+            if idx != BLANK_IDX and idx != prev:
+                chars.append(IDX_TO_CHAR[idx])
+            prev = idx
+        results.append(''.join(chars))
+    return results
+
+
+def get_device():
+    """Platforma göre en iyi cihazı seç"""
+    if torch.cuda.is_available():
+        return torch.device('cuda')
+    if torch.backends.mps.is_available():
+        return torch.device('mps')
+    return torch.device('cpu')
+
 
 class CRNNDataset(Dataset):
-    """CRNN eğitim veri seti"""
+    """Rakam dizisi tanıma veri seti"""
 
-    def __init__(self, csv_path, img_dir, transform=None, max_width=128, max_height=32):
+    def __init__(self, csv_path, img_dir, transform=None):
         self.df = pd.read_csv(csv_path)
         self.img_dir = Path(img_dir)
         self.transform = transform
-        self.max_width = max_width
-        self.max_height = max_height
 
-        # Geçerli dosyaları filtrele
-        self.valid_indices = []
-        for idx, row in self.df.iterrows():
-            img_path = self.img_dir / row['file_name']
-            if img_path.exists():
-                self.valid_indices.append(idx)
+        # Geçerli dosyaları ve label'ları filtrele
+        self.samples = []
+        skipped_label = 0
+        skipped_image = 0
 
-        logger.info(f"Dataset oluşturuldu: {len(self.valid_indices)} geçerli örnek")
+        for _, row in self.df.iterrows():
+            label = str(row['label']).strip()
+
+            # Sadece charset'teki karakterlerden oluşan label'lar
+            if not label or not all(c in CHAR_TO_IDX for c in label):
+                skipped_label += 1
+                continue
+
+            img_path = self._resolve_image_path(row)
+            if img_path is None:
+                skipped_image += 1
+                continue
+
+            self.samples.append((img_path, label))
+
+        logger.info(
+            f"Dataset: {len(self.samples)} örnek "
+            f"(atlanan: {skipped_label} geçersiz label, {skipped_image} eksik resim)"
+        )
+
+    def _resolve_image_path(self, row):
+        """Resim yolunu çöz: önce image_path, sonra img_dir/type/file_name"""
+        candidates = []
+
+        img_path_col = row.get('image_path')
+        if pd.notna(img_path_col):
+            candidates.append(Path(img_path_col))
+
+        file_name = row.get('file_name')
+        field_type = row.get('type')
+        if pd.notna(file_name):
+            if pd.notna(field_type):
+                candidates.append(self.img_dir / str(field_type) / str(file_name))
+            candidates.append(self.img_dir / str(file_name))
+
+        return next((c for c in candidates if c.exists()), None)
 
     def __len__(self):
-        return len(self.valid_indices)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        actual_idx = self.valid_indices[idx]
-        row = self.df.iloc[actual_idx]
-
-        # Resim yükle
-        img_path = self.img_dir / row['file_name']
+        img_path, label = self.samples[idx]
         image = Image.open(img_path).convert('L')
 
-        # Transform uygula
         if self.transform:
             image = self.transform(image)
-
-        # Label'ı sayıya dönüştür
-        label = str(row['label'])
 
         return {
             'image': image,
             'label': label,
-            'file_name': row['file_name']
+            'file_name': img_path.name
         }
 
 
 class CRNN(nn.Module):
-    """CNN-RNN tabanlı CRNN modeli"""
+    """CNN + BiLSTM + CTC tabanlı sekans tanıma modeli"""
 
-    def __init__(self, num_classes, cnn_channels=[32, 64, 128], rnn_hidden=256):
-        super(CRNN, self).__init__()
+    def __init__(self, num_classes=NUM_CLASSES, rnn_hidden=256):
+        super().__init__()
 
-        # CNN kısmı
+        # CNN: (1, 32, W) → (512, 1, W/4)
+        # Yükseklik agresif, genişlik hafif düşürülür ki zaman adımları korunur
         self.cnn = nn.Sequential(
-            nn.Conv2d(1, cnn_channels[0], kernel_size=3, padding=1),
-            nn.BatchNorm2d(cnn_channels[0]),
+            nn.Conv2d(1, 64, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),
+            nn.MaxPool2d(2, 2),          # 64 x 16 x W/2
 
-            nn.Conv2d(cnn_channels[0], cnn_channels[1], kernel_size=3, padding=1),
-            nn.BatchNorm2d(cnn_channels[1]),
+            nn.Conv2d(64, 128, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(2, 2),
+            nn.MaxPool2d(2, 2),          # 128 x 8 x W/4
 
-            nn.Conv2d(cnn_channels[1], cnn_channels[2], kernel_size=3, padding=1),
-            nn.BatchNorm2d(cnn_channels[2]),
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d((2, 2), (2, 2)),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d((2, 1), (2, 1)),  # 256 x 4 x W/4
+
+            nn.Conv2d(256, 512, 3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d((2, 1), (2, 1)),  # 512 x 2 x W/4
+
+            nn.Conv2d(512, 512, 2),        # 512 x 1 x (W/4 - 1)
+            nn.BatchNorm2d(512),
+            nn.ReLU(inplace=True),
         )
 
-        # RNN kısmı
-        self.rnn = nn.Sequential(
-            nn.LSTM(cnn_channels[2] * 4, rnn_hidden, batch_first=True, bidirectional=True),
+        self.rnn = nn.LSTM(
+            512, rnn_hidden,
+            num_layers=2,
+            bidirectional=True,
+            batch_first=False,
+            dropout=0.2
         )
 
-        self.fc = nn.Sequential(
-            nn.Linear(rnn_hidden * 2, 256),
-            nn.ReLU(inplace=True),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes)
-        )
+        self.fc = nn.Linear(rnn_hidden * 2, num_classes)
 
     def forward(self, x):
-        # CNN çıktısı: (batch, channels, height, width)
-        cnn_out = self.cnn(x)
+        conv = self.cnn(x)                     # (N, 512, 1, T)
+        conv = conv.squeeze(2)                 # (N, 512, T)
+        conv = conv.permute(2, 0, 1)           # (T, N, 512)
 
-        # RNN için reshape: (batch, width, channels * height)
-        batch, channels, height, width = cnn_out.size()
-        cnn_out = cnn_out.permute(0, 3, 1, 2).contiguous()
-        cnn_out = cnn_out.view(batch, width, channels * height)
+        rnn_out, _ = self.rnn(conv)            # (T, N, 2*hidden)
+        logits = self.fc(rnn_out)              # (T, N, num_classes)
 
-        # RNN çıktısı
-        rnn_out, _ = self.rnn(cnn_out)
-
-        # Global average pooling
-        rnn_out = rnn_out.mean(dim=1)
-
-        # Sınıf tahmini
-        out = self.fc(rnn_out)
-
-        return out
+        return logits
 
 
 class Trainer:
@@ -138,83 +212,95 @@ class Trainer:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
 
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = get_device()
         logger.info(f"Cihaz: {self.device}")
-        logger.info(f"İşletim Sistemi: {platform.system()}")
+        logger.info(f"İşletim Sistemi: {platform.system()} ({platform.machine()})")
 
-        # Model kurulumu
-        self.setup_model()
-        self.setup_dataloaders()
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.config['learning_rate'])
-        self.criterion = nn.CrossEntropyLoss()
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.5, patience=5, verbose=True
-        )
+        torch.manual_seed(self.config.get('seed', 42))
 
-        self.best_val_loss = float('inf')
-        self.history = {'train_loss': [], 'val_loss': [], 'val_acc': []}
-
-    def setup_model(self):
-        """Model ve unique label'ları setup et"""
-        processed_dir = Path(self.config['data_dir']) / 'processed'
-
-        # Unique label'ları bul
-        train_csv = processed_dir / 'train.csv'
-        df = pd.read_csv(train_csv)
-        self.unique_labels = sorted(df['label'].astype(str).unique())
-        self.num_classes = len(self.unique_labels)
-        self.label_to_idx = {label: idx for idx, label in enumerate(self.unique_labels)}
-
-        logger.info(f"Sınıf sayısı: {self.num_classes}")
-
-        self.model = CRNN(self.num_classes).to(self.device)
+        self.model = CRNN(rnn_hidden=self.config.get('rnn_hidden', 256)).to(self.device)
         logger.info(f"Model parametreleri: {sum(p.numel() for p in self.model.parameters()):,}")
 
+        self.setup_dataloaders()
+
+        self.criterion = nn.CTCLoss(blank=BLANK_IDX, zero_infinity=True)
+        self.optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=self.config['learning_rate'],
+            weight_decay=self.config.get('weight_decay', 0)
+        )
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',
+            factor=self.config.get('scheduler_factor', 0.5),
+            patience=self.config.get('scheduler_patience', 5)
+        )
+
+        self.best_val_acc = 0.0
+        self.history = {'train_loss': [], 'val_loss': [], 'val_acc': [], 'val_cer': []}
+
     def setup_dataloaders(self):
-        """Eğitim ve validation dataloaderlarını oluştur"""
+        """Eğitim ve validation dataloader'larını oluştur"""
         data_dir = Path(self.config['data_dir'])
         processed_dir = data_dir / 'processed'
 
-        # Transform
         transform = transforms.Compose([
             transforms.Resize((self.config['img_height'], self.config['img_width'])),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
 
-        # Veri setleri
         train_dataset = CRNNDataset(
             processed_dir / 'train.csv',
             data_dir / 'cropped_fields',
             transform=transform
         )
-
         val_dataset = CRNNDataset(
             processed_dir / 'val.csv',
             data_dir / 'cropped_fields',
             transform=transform
         )
 
-        # Dataloaderlar
+        num_workers = self.config.get('num_workers', 2)
+
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=self.config['batch_size'],
             shuffle=True,
-            num_workers=self.config.get('num_workers', 4)
+            num_workers=num_workers
         )
-
         self.val_loader = DataLoader(
             val_dataset,
             batch_size=self.config['batch_size'],
             shuffle=False,
-            num_workers=self.config.get('num_workers', 4)
+            num_workers=num_workers
         )
 
         logger.info(f"Eğitim veri seti: {len(train_dataset)} örnek")
         logger.info(f"Validation veri seti: {len(val_dataset)} örnek")
 
+    def compute_ctc_loss(self, logits, labels):
+        """CTC loss hesapla"""
+        T, N, _ = logits.shape
+
+        targets = torch.cat([
+            torch.tensor(encode_label(label), dtype=torch.long)
+            for label in labels
+        ])
+        target_lengths = torch.tensor(
+            [len(label) for label in labels], dtype=torch.long
+        )
+        input_lengths = torch.full((N,), T, dtype=torch.long)
+
+        log_probs = logits.log_softmax(2)
+
+        # CTC loss CPU'da daha stabil (özellikle MPS'de)
+        return self.criterion(
+            log_probs.cpu(), targets, input_lengths, target_lengths
+        )
+
     def train_epoch(self):
-        """Bir epoch eğitimi"""
+        """Bir epoch eğitim"""
         self.model.train()
         total_loss = 0
 
@@ -223,33 +309,27 @@ class Trainer:
             images = batch['image'].to(self.device)
             labels = batch['label']
 
-            # Label'ları indekse dönüştür
-            label_indices = torch.tensor(
-                [self.label_to_idx[label] for label in labels],
-                device=self.device
-            )
-
-            # Forward pass
             self.optimizer.zero_grad()
-            outputs = self.model(images)
-            loss = self.criterion(outputs, label_indices)
+            logits = self.model(images)
+            loss = self.compute_ctc_loss(logits, labels)
 
-            # Backward pass
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5.0)
             self.optimizer.step()
 
             total_loss += loss.item()
-            pbar.set_postfix({'loss': loss.item():.4f})
+            pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
         return total_loss / len(self.train_loader)
 
     def validate(self):
-        """Validation döngüsü"""
+        """Validation: loss + exact-match accuracy + karakter hata oranı (CER)"""
         self.model.eval()
         total_loss = 0
-        all_preds = []
-        all_labels = []
+        correct = 0
+        total = 0
+        char_errors = 0
+        char_total = 0
 
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc='Validation')
@@ -257,88 +337,111 @@ class Trainer:
                 images = batch['image'].to(self.device)
                 labels = batch['label']
 
-                # Label'ları indekse dönüştür
-                label_indices = torch.tensor(
-                    [self.label_to_idx[label] for label in labels],
-                    device=self.device
-                )
-
-                outputs = self.model(images)
-                loss = self.criterion(outputs, label_indices)
+                logits = self.model(images)
+                loss = self.compute_ctc_loss(logits, labels)
                 total_loss += loss.item()
 
-                # Tahminler
-                preds = outputs.argmax(dim=1).cpu().numpy()
-                all_preds.extend(preds)
-                all_labels.extend(label_indices.cpu().numpy())
+                preds = decode_greedy(logits)
+                for pred, true in zip(preds, labels):
+                    if pred == true:
+                        correct += 1
+                    total += 1
+                    char_errors += levenshtein(pred, true)
+                    char_total += len(true)
 
-                pbar.set_postfix({'loss': loss.item():.4f})
+                pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
         val_loss = total_loss / len(self.val_loader)
-        accuracy = accuracy_score(all_labels, all_preds)
+        accuracy = correct / max(total, 1)
+        cer = char_errors / max(char_total, 1)
 
-        return val_loss, accuracy
+        return val_loss, accuracy, cer
 
     def train(self):
         """Tam eğitim döngüsü"""
-        logger.info(f"Eğitim başladı - Epoch: {self.config['num_epochs']}")
+        num_epochs = self.config['num_epochs']
+        logger.info(f"Eğitim başladı - Epoch: {num_epochs}")
 
-        for epoch in range(self.config['num_epochs']):
+        for epoch in range(num_epochs):
             train_loss = self.train_epoch()
-            val_loss, val_acc = self.validate()
+            val_loss, val_acc, val_cer = self.validate()
 
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
             self.history['val_acc'].append(val_acc)
+            self.history['val_cer'].append(val_cer)
 
             logger.info(
-                f"Epoch {epoch+1}/{self.config['num_epochs']} - "
-                f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}"
+                f"Epoch {epoch + 1}/{num_epochs} - "
+                f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
+                f"Val Acc: {val_acc:.4f}, Val CER: {val_cer:.4f}"
             )
 
-            # Scheduler adımı
             self.scheduler.step(val_loss)
 
-            # En iyi model'i kaydet
-            if val_loss < self.best_val_loss:
-                self.best_val_loss = val_loss
-                self.save_model(epoch)
-                logger.info(f"✓ En iyi model kaydedildi (Val Loss: {val_loss:.4f})")
+            if val_acc > self.best_val_acc:
+                self.best_val_acc = val_acc
+                self.save_model(epoch, val_acc)
+                logger.info(f"✓ En iyi model kaydedildi (Val Acc: {val_acc:.4f})")
 
         self.save_history()
+        logger.info(f"En iyi Val Acc: {self.best_val_acc:.4f}")
 
-    def save_model(self, epoch):
-        """Model'i kaydet"""
+    def save_model(self, epoch, val_acc):
+        """Model checkpoint'ini kaydet"""
         models_dir = Path('models')
         models_dir.mkdir(exist_ok=True)
 
         checkpoint = {
             'epoch': epoch,
+            'val_acc': val_acc,
             'model_state': self.model.state_dict(),
             'optimizer_state': self.optimizer.state_dict(),
             'config': self.config,
-            'label_to_idx': self.label_to_idx,
-            'unique_labels': self.unique_labels
+            'charset': CHARSET,
         }
 
-        model_path = models_dir / f"crnn_best_model.pth"
-        torch.save(checkpoint, model_path)
-        logger.info(f"Model kaydedildi: {model_path}")
+        torch.save(checkpoint, models_dir / 'crnn_best_model.pth')
 
     def save_history(self):
         """Eğitim geçmişini kaydet"""
-        logs_dir = Path('logs')
-        logs_dir.mkdir(exist_ok=True)
-
-        history_path = logs_dir / f"history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        history_path = Path('logs') / f"history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(history_path, 'w') as f:
             json.dump(self.history, f, indent=2)
 
         logger.info(f"Eğitim geçmişi kaydedildi: {history_path}")
 
+        # Grafik oluştur
+        try:
+            from utils.visualization import plot_training_history
+            plot_path = plot_training_history(self.history)
+            logger.info(f"Eğitim grafiği kaydedildi: {plot_path}")
+        except Exception as e:
+            logger.warning(f"Grafik oluşturulamadı: {e}")
+
+
+def levenshtein(s1, s2):
+    """İki string arasındaki edit distance"""
+    if len(s1) < len(s2):
+        return levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+
+    previous = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        current = [i + 1]
+        for j, c2 in enumerate(s2):
+            current.append(min(
+                previous[j + 1] + 1,      # silme
+                current[j] + 1,           # ekleme
+                previous[j] + (c1 != c2)  # değiştirme
+            ))
+        previous = current
+
+    return previous[-1]
+
 
 def main():
-    """Ana fonksiyon"""
     config_path = 'configs/training_config.yaml'
 
     if not Path(config_path).exists():

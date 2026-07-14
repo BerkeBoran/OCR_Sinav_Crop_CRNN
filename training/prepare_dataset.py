@@ -24,7 +24,7 @@ def merge_csv_files(raw_data_dir):
         logger.error(f"Klasör bulunamadı: {raw_dir}")
         return None
 
-    csv_files = list(raw_dir.glob('*.csv')) + list(raw_dir.glob('**/*.csv'))
+    csv_files = sorted(set(raw_dir.rglob('*.csv')))
 
     if not csv_files:
         logger.error(f"{raw_dir} içinde CSV dosyası bulunamadı")
@@ -55,12 +55,15 @@ def merge_csv_files(raw_data_dir):
 def prepare_splits(df, test_size=0.2, val_size=0.1, random_state=42):
     """Train/Val/Test split'leri oluştur"""
 
+    # Label'lar çoğunlukla benzersiz olduğundan stratify için 'type' kullan
+    stratify_col = df['type'] if 'type' in df.columns else None
+
     # Test split
     train_val_df, test_df = train_test_split(
         df,
         test_size=test_size,
         random_state=random_state,
-        stratify=df['label'] if 'label' in df.columns else None
+        stratify=stratify_col
     )
 
     # Train/Val split
@@ -69,7 +72,7 @@ def prepare_splits(df, test_size=0.2, val_size=0.1, random_state=42):
         train_val_df,
         test_size=val_percentage,
         random_state=random_state,
-        stratify=train_val_df['label'] if 'label' in train_val_df.columns else None
+        stratify=train_val_df['type'] if 'type' in train_val_df.columns else None
     )
 
     logger.info(f"Train set: {len(train_df)} satır ({len(train_df)/len(df)*100:.1f}%)")
@@ -80,30 +83,44 @@ def prepare_splits(df, test_size=0.2, val_size=0.1, random_state=42):
 
 
 def validate_images(df, img_dir):
-    """Resimlerin var olup olmadığını kontrol et"""
+    """Resimlerin var olup olmadığını kontrol et ve çözülen yolu kaydet"""
     img_path = Path(img_dir)
-    valid_count = 0
+    resolved_paths = []
     invalid_indices = []
 
     for idx, row in df.iterrows():
-        # CSV'de image_path veya file_name kullanılabilir
-        img_file = row.get('file_name') or row.get('image_path')
+        candidates = []
 
-        if img_file:
-            # Hem tam path hem sadece dosya adı deneme
-            if Path(img_file).exists():
-                valid_count += 1
-            elif (img_path / Path(img_file).name).exists():
-                valid_count += 1
-            else:
-                invalid_indices.append(idx)
+        # 1. CSV'deki image_path (proje köküne göre relative)
+        if 'image_path' in row and pd.notna(row['image_path']):
+            candidates.append(Path(row['image_path']))
 
-    logger.info(f"Geçerli resim: {valid_count}/{len(df)}")
+        # 2. img_dir/type/file_name (alt klasör yapısı)
+        file_name = row.get('file_name')
+        field_type = row.get('type')
+        if pd.notna(file_name):
+            if pd.notna(field_type):
+                candidates.append(img_path / str(field_type) / str(file_name))
+            candidates.append(img_path / str(file_name))
+
+        resolved = next((c for c in candidates if c.exists()), None)
+
+        if resolved:
+            resolved_paths.append((idx, str(resolved)))
+        else:
+            invalid_indices.append(idx)
+
+    logger.info(f"Geçerli resim: {len(resolved_paths)}/{len(df)}")
 
     if invalid_indices:
         logger.warning(f"Bulunmayan resimler: {len(invalid_indices)} dosya")
         df = df.drop(invalid_indices)
         logger.info(f"Geçersiz satırlar çıkarıldı. Yeni toplam: {len(df)}")
+
+    # Çözülen tam yolları image_path sütununa yaz
+    for idx, path in resolved_paths:
+        if idx in df.index:
+            df.loc[idx, 'image_path'] = path
 
     return df
 
@@ -140,8 +157,16 @@ def process_dataset(raw_data_dir, output_dir, img_dir, test_size=0.2, val_size=0
         logger.error("Hiçbir geçerli resim bulunamadı")
         return False
 
+    # Geçersiz label'ları filtrele (sadece rakamlardan oluşanlar geçerli)
+    logger.info("Step 4: Label'lar temizleniyor...")
+    original_len = len(df)
+    df['label'] = df['label'].astype(str).str.strip()
+    df = df[df['label'].str.fullmatch(r'\d+')]
+    if original_len - len(df) > 0:
+        logger.warning(f"Rakam olmayan label'lı satırlar çıkarıldı: {original_len - len(df)}")
+
     # Duplikatları kaldır
-    logger.info("Step 4: Duplikatlar kaldırılıyor...")
+    logger.info("Step 5: Duplikatlar kaldırılıyor...")
     original_len = len(df)
     df = df.drop_duplicates(subset=['file_name'], keep='first')
     logger.info(f"Duplikat: {original_len - len(df)}")

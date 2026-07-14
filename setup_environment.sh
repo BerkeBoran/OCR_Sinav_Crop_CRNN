@@ -36,18 +36,24 @@ PY_VER=$($PY_VERSION --version | cut -d' ' -f2)
 echo "✓ Python sürümü: $PY_VER"
 echo ""
 
-# Virtual environment oluştur
+# Virtual environment oluştur veya mevcut olanı kullan
 echo "Adım 2: Virtual environment oluşturuluyor..."
-if [ ! -d "venv" ]; then
-    $PY_VERSION -m venv venv
-    echo "✓ Virtual environment oluşturuldu"
+VENV_DIR=""
+if [ -d ".venv" ]; then
+    VENV_DIR=".venv"
+    echo "✓ Virtual environment bulundu: .venv"
+elif [ -d "venv" ]; then
+    VENV_DIR="venv"
+    echo "✓ Virtual environment bulundu: venv"
 else
-    echo "✓ Virtual environment zaten var"
+    VENV_DIR="venv"
+    $PY_VERSION -m venv $VENV_DIR
+    echo "✓ Virtual environment oluşturuldu: $VENV_DIR"
 fi
 
 # Virtual environment'ı etkinleştir
-source venv/bin/activate
-echo "✓ Virtual environment etkinleştirildi"
+source $VENV_DIR/bin/activate
+echo "✓ Virtual environment etkinleştirildi ($VENV_DIR)"
 echo ""
 
 # pip'i güncelle
