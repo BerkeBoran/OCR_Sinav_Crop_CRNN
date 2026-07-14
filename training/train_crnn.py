@@ -30,15 +30,21 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import multiprocessing
+
 Path('logs').mkdir(exist_ok=True)
+
+# Dosya log'u sadece ana süreçte aç — DataLoader worker'ları boş log oluşturmasın
+_handlers = [logging.StreamHandler()]
+if multiprocessing.parent_process() is None:
+    _handlers.append(
+        logging.FileHandler(f'logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
+    )
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f'logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
-        logging.StreamHandler()
-    ]
+    handlers=_handlers
 )
 logger = logging.getLogger(__name__)
 
@@ -236,7 +242,7 @@ class Trainer:
             patience=self.config.get('scheduler_patience', 5)
         )
 
-        self.best_val_acc = 0.0
+        self.best_val_acc = -1.0  # ilk epoch her zaman kaydedilsin
         self.history = {'train_loss': [], 'val_loss': [], 'val_acc': [], 'val_cer': []}
 
     def setup_dataloaders(self):
@@ -330,6 +336,7 @@ class Trainer:
         total = 0
         char_errors = 0
         char_total = 0
+        examples = []  # epoch sonunda gösterilecek örnek tahminler
 
         with torch.no_grad():
             pbar = tqdm(self.val_loader, desc='Validation')
@@ -349,43 +356,82 @@ class Trainer:
                     char_errors += levenshtein(pred, true)
                     char_total += len(true)
 
+                    if len(examples) < 6:
+                        examples.append((true, pred))
+
                 pbar.set_postfix({'loss': f'{loss.item():.4f}'})
 
         val_loss = total_loss / len(self.val_loader)
         accuracy = correct / max(total, 1)
         cer = char_errors / max(char_total, 1)
 
-        return val_loss, accuracy, cer
+        return val_loss, accuracy, cer, examples
+
+    def _trend(self, current, previous, lower_is_better):
+        """Önceki epoch'a göre iyileşme/kötüleşme işareti üret"""
+        if previous is None:
+            return ''
+        if current == previous:
+            return '→ değişmedi'
+        improved = (current < previous) if lower_is_better else (current > previous)
+        arrow = '↓' if current < previous else '↑'
+        return f"{arrow} {'iyileşiyor ✓' if improved else 'kötüleşti ⚠'}"
+
+    def print_epoch_summary(self, epoch, num_epochs, train_loss, val_loss, val_acc, val_cer, examples):
+        """Epoch sonucunu herkesin anlayacağı şekilde yazdır"""
+        h = self.history
+        prev = lambda key: h[key][-1] if h[key] else None
+
+        logger.info("")
+        logger.info("─" * 68)
+        logger.info(f"EPOCH {epoch + 1}/{num_epochs} SONUCU")
+        logger.info("─" * 68)
+        logger.info(f"  Hata puanı (train loss) : {train_loss:8.4f}  {self._trend(train_loss, prev('train_loss'), True):<20} [AZALMALI]")
+        logger.info(f"  Hata puanı (val loss)   : {val_loss:8.4f}  {self._trend(val_loss, prev('val_loss'), True):<20} [AZALMALI]")
+        logger.info(f"  Doğru okuma oranı       : %{val_acc * 100:6.2f}  {self._trend(val_acc, prev('val_acc'), False):<20} [ARTMALI]")
+        logger.info(f"  Rakam hata oranı (CER)  : %{val_cer * 100:6.2f}  {self._trend(val_cer, prev('val_cer'), True):<20} [AZALMALI]")
+        logger.info("")
+        logger.info("  Örnek okumalar (gerçek → modelin okuduğu):")
+        for true, pred in examples:
+            mark = '✓' if true == pred else '✗'
+            logger.info(f"    {mark} {true} → {pred if pred else '(boş)'}")
+        logger.info("─" * 68)
 
     def train(self):
         """Tam eğitim döngüsü"""
         num_epochs = self.config['num_epochs']
         logger.info(f"Eğitim başladı - Epoch: {num_epochs}")
+        logger.info("")
+        logger.info("NASIL OKUNUR?")
+        logger.info("  • Hata puanı (loss)     : Modelin hata ölçüsü — her epoch AZALMALI")
+        logger.info("  • Doğru okuma oranı     : Tamamen doğru okunan alan yüzdesi — ARTMALI")
+        logger.info("  • Rakam hata oranı (CER): Yanlış okunan rakam yüzdesi — AZALMALI")
+        logger.info("  İlk epoch'larda sonuçlar kötüdür, zamanla düzelir. Bu normaldir.")
 
         for epoch in range(num_epochs):
             train_loss = self.train_epoch()
-            val_loss, val_acc, val_cer = self.validate()
+            val_loss, val_acc, val_cer, examples = self.validate()
+
+            self.print_epoch_summary(
+                epoch, num_epochs, train_loss, val_loss, val_acc, val_cer, examples
+            )
 
             self.history['train_loss'].append(train_loss)
             self.history['val_loss'].append(val_loss)
             self.history['val_acc'].append(val_acc)
             self.history['val_cer'].append(val_cer)
 
-            logger.info(
-                f"Epoch {epoch + 1}/{num_epochs} - "
-                f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, "
-                f"Val Acc: {val_acc:.4f}, Val CER: {val_cer:.4f}"
-            )
-
             self.scheduler.step(val_loss)
 
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
                 self.save_model(epoch, val_acc)
-                logger.info(f"✓ En iyi model kaydedildi (Val Acc: {val_acc:.4f})")
+                logger.info(f"✓ Şu ana kadarki EN İYİ model kaydedildi (doğruluk: %{val_acc * 100:.2f})")
 
         self.save_history()
-        logger.info(f"En iyi Val Acc: {self.best_val_acc:.4f}")
+        logger.info("")
+        logger.info(f"EĞİTİM BİTTİ — En iyi doğru okuma oranı: %{self.best_val_acc * 100:.2f}")
+        logger.info("Sıradaki adım: python3 training/evaluate_model.py")
 
     def save_model(self, epoch, val_acc):
         """Model checkpoint'ini kaydet"""

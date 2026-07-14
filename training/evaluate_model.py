@@ -114,13 +114,14 @@ class ModelEvaluator:
 
         # Alan tipine göre kırılım (dosya adından çıkar)
         results_df['field_type'] = results_df['file_name'].apply(
-            lambda f: 'ogrenci_numara' if 'ogrenci_numara' in f else ('not' if '_not' in f else 'diger')
+            lambda f: 'Öğrenci Numarası' if 'ogrenci_numara' in f else ('Not' if '_not' in f else 'Diğer')
         )
 
         by_type = {}
         for field_type, group in results_df.groupby('field_type'):
             by_type[field_type] = {
                 'accuracy': float(group['correct'].mean()),
+                'correct': int(group['correct'].sum()),
                 'samples': len(group),
             }
         metrics['by_field_type'] = by_type
@@ -134,46 +135,100 @@ class ModelEvaluator:
         with open(metrics_json, 'w') as f:
             json.dump(metrics, f, indent=2)
 
+        # Herkesin okuyabileceği düz metin rapor
+        rapor_txt = output_path / f'{set_name}_rapor_{timestamp}.txt'
+        self.write_simple_report(rapor_txt, metrics, results_df)
+
         logger.info(f"\nSonuçlar kaydedildi:")
-        logger.info(f"  - CSV: {results_csv}")
-        logger.info(f"  - JSON: {metrics_json}")
+        logger.info(f"  - Okunabilir rapor: {rapor_txt}")
+        logger.info(f"  - Detay CSV:        {results_csv}")
+        logger.info(f"  - Metrikler JSON:   {metrics_json}")
 
-        return metrics, results_df
+        return metrics, results_df, rapor_txt
 
-    def print_metrics(self, metrics):
-        """Metrikleri yazdır"""
-        logger.info("\n" + "=" * 50)
-        logger.info("DEĞERLENDİRME SONUÇLARI")
-        logger.info("=" * 50)
-        logger.info(f"Sequence Accuracy:    {metrics['sequence_accuracy']:.4f}")
-        logger.info(f"Character Error Rate: {metrics['character_error_rate']:.4f}")
-        logger.info(f"Doğru / Toplam:       {metrics['correct_samples']} / {metrics['total_samples']}")
+    def build_simple_report(self, metrics, results_df):
+        """Basit, anlaşılır karşılaştırma raporunu metin olarak oluştur"""
+        lines = []
+        add = lines.append
 
-        for field_type, stats in metrics.get('by_field_type', {}).items():
-            logger.info(f"  {field_type}: acc={stats['accuracy']:.4f} ({stats['samples']} örnek)")
+        add("=" * 70)
+        add("MODEL KARNESİ — Test Sonuçları")
+        add("=" * 70)
+        add("")
+        add("Model, daha önce HİÇ GÖRMEDİĞİ sınav kağıdı alanlarını okudu.")
+        add("Aşağıda gerçek değer ile modelin okuduğu değer karşılaştırılıyor.")
+        add("")
 
-        logger.info("=" * 50 + "\n")
+        # Genel özet
+        total = metrics['total_samples']
+        correct = metrics['correct_samples']
+        add("-" * 70)
+        add("GENEL SONUÇ")
+        add("-" * 70)
+        add(f"  Toplam okunan alan : {total}")
+        add(f"  Doğru okunan       : {correct}  (%{correct / max(total, 1) * 100:.1f})")
+        add(f"  Yanlış okunan      : {total - correct}  (%{(total - correct) / max(total, 1) * 100:.1f})")
+        add("")
 
-    def print_errors(self, results_df, max_show=20):
-        """Yanlış tahminleri göster"""
+        # Alan tipine göre
+        add("-" * 70)
+        add("ALAN TİPİNE GÖRE BAŞARI")
+        add("-" * 70)
+        for field_type, stats in metrics['by_field_type'].items():
+            bar_len = int(stats['accuracy'] * 30)
+            bar = '█' * bar_len + '░' * (30 - bar_len)
+            add(f"  {field_type:<18}: {bar} %{stats['accuracy'] * 100:5.1f}  ({stats['correct']}/{stats['samples']} doğru)")
+        add("")
+
+        # Yanlış okunanlar — tam liste, tip bazında
         wrong = results_df[~results_df['correct']]
 
+        add("-" * 70)
         if len(wrong) == 0:
-            logger.info("✓ Tüm tahminler doğru!")
-            return
+            add("✓ TÜM ALANLAR DOĞRU OKUNDU — hiç hata yok!")
+        else:
+            add(f"YANLIŞ OKUNANLAR — {len(wrong)} alan")
+            add("-" * 70)
+            add("  (Gerçek değer → Modelin okuduğu. 'fark' = kaç rakam hatalı)")
+            add("")
+            for field_type, group in wrong.groupby('field_type'):
+                add(f"  ▼ {field_type} ({len(group)} hata):")
+                for _, row in group.iterrows():
+                    pred_shown = row['predicted_label'] if row['predicted_label'] else '(boş okudu)'
+                    add(f"    ✗ {row['true_label']:>12} → {pred_shown:<12} (fark: {row['edit_distance']} rakam)   [{row['file_name']}]")
+                add("")
 
-        logger.info(f"\nYanlış Tahminler ({len(wrong)}):")
-        logger.info("-" * 80)
+        # Doğru okunanlardan örnekler
+        right = results_df[results_df['correct']]
+        if len(right) > 0:
+            add("-" * 70)
+            add(f"DOĞRU OKUNANLARDAN ÖRNEKLER (toplam {len(right)} doğru)")
+            add("-" * 70)
+            for field_type, group in right.groupby('field_type'):
+                add(f"  ▼ {field_type}:")
+                for _, row in group.head(5).iterrows():
+                    add(f"    ✓ {row['true_label']:>12} → {row['predicted_label']}")
+                add("")
 
-        for _, row in wrong.head(max_show).iterrows():
-            logger.info(
-                f"{row['file_name']}: "
-                f"Gerçek={row['true_label']}, Tahmin={row['predicted_label']} "
-                f"(edit={row['edit_distance']})"
-            )
+        add("=" * 70)
+        add("NASIL YORUMLANIR?")
+        add("  • %90 üzeri doğruluk  : Model iyi durumda")
+        add("  • %70-90 arası        : Daha fazla veri veya epoch gerekebilir")
+        add("  • %70 altı            : Veri kalitesini ve etiketleri kontrol edin")
+        add("  • 'fark: 1 rakam'     : Model sadece 1 rakamı karıştırmış (yakın hata)")
+        add("=" * 70)
 
-        if len(wrong) > max_show:
-            logger.info(f"... ve {len(wrong) - max_show} daha")
+        return '\n'.join(lines)
+
+    def write_simple_report(self, path, metrics, results_df):
+        """Raporu dosyaya yaz"""
+        report = self.build_simple_report(metrics, results_df)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(report + '\n')
+
+    def print_simple_report(self, metrics, results_df):
+        """Raporu ekrana yazdır"""
+        print('\n' + self.build_simple_report(metrics, results_df) + '\n')
 
 
 def main():
@@ -200,12 +255,11 @@ def main():
     logger.info("Tahminler yapılıyor...")
     preds, labels, files = evaluator.evaluate(dataloader)
 
-    metrics, results_df = evaluator.save_results(preds, labels, files, output_dir)
+    metrics, results_df, rapor_txt = evaluator.save_results(preds, labels, files, output_dir)
 
-    evaluator.print_metrics(metrics)
-    evaluator.print_errors(results_df)
+    evaluator.print_simple_report(metrics, results_df)
 
-    logger.info("✓ Değerlendirme tamamlandı!")
+    logger.info(f"✓ Değerlendirme tamamlandı! Rapor: {rapor_txt}")
 
 
 if __name__ == '__main__':

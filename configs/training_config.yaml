@@ -22,7 +22,8 @@ scheduler_patience: 5
 scheduler_factor: 0.5
 
 # DataLoader ayarları
-num_workers: 4
+# Not: Küçük veri setinde 0 en hızlısı (macOS'ta worker başlatma maliyeti yüksek)
+num_workers: 0
 pin_memory: true
 
 # Veri split'leri
