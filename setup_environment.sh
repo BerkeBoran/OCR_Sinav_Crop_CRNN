@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# CRNN Model Eğitim Ortamı Kurulum Scripti
-# MacBook ve Linux uyumlu
+# CRNN Model Eğitim Ortamı Kurulumu (macOS / Linux)
+# Kullanım: bash setup_environment.sh
 
 set -e
 
@@ -13,155 +13,72 @@ echo ""
 # Platform kontrolü
 if [[ "$OSTYPE" == "darwin"* ]]; then
     OS="macOS"
-    PY_VERSION="python3"
 elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     OS="Linux"
-    PY_VERSION="python3"
 else
     echo "❌ Desteklenmeyen işletim sistemi: $OSTYPE"
     exit 1
 fi
+echo "✓ İşletim Sistemi: $OS"
 
-echo "✓ Işletim Sistemi: $OS"
+# Python kontrolü
 echo ""
-
-# Python versiyonu kontrol et
-echo "Adım 1: Python kontrolü..."
-if ! command -v $PY_VERSION &> /dev/null; then
-    echo "❌ Python3 bulunamadı. Lütfen Python 3.8+ yükleyin."
+echo "Adım 1/4: Python kontrolü..."
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python3 bulunamadı. Lütfen Python 3.9+ yükleyin."
     exit 1
 fi
+echo "✓ Python sürümü: $(python3 --version | cut -d' ' -f2)"
 
-PY_VER=$($PY_VERSION --version | cut -d' ' -f2)
-echo "✓ Python sürümü: $PY_VER"
+# Virtual environment (mevcut .venv veya venv kullanılır, yoksa oluşturulur)
 echo ""
-
-# Virtual environment oluştur veya mevcut olanı kullan
-echo "Adım 2: Virtual environment oluşturuluyor..."
+echo "Adım 2/4: Virtual environment..."
 VENV_DIR=""
 if [ -d ".venv" ]; then
     VENV_DIR=".venv"
-    echo "✓ Virtual environment bulundu: .venv"
 elif [ -d "venv" ]; then
     VENV_DIR="venv"
-    echo "✓ Virtual environment bulundu: venv"
 else
     VENV_DIR="venv"
-    $PY_VERSION -m venv $VENV_DIR
-    echo "✓ Virtual environment oluşturuldu: $VENV_DIR"
+    python3 -m venv $VENV_DIR
 fi
-
-# Virtual environment'ı etkinleştir
 source $VENV_DIR/bin/activate
-echo "✓ Virtual environment etkinleştirildi ($VENV_DIR)"
+echo "✓ Etkin: $VENV_DIR"
+
+# Paketler
 echo ""
-
-# pip'i güncelle
-echo "Adım 3: pip ve setuptools güncelleniyor..."
-pip install --upgrade pip setuptools wheel --quiet
-echo "✓ pip güncellendi"
-echo ""
-
-# Gerekli paketleri yükle
-echo "Adım 4: Bağımlılıklar yükleniyor..."
-
-# Base paketler
-echo "  - PyTorch yükleniyor..."
-if [[ "$OS" == "macOS" ]]; then
-    # MacBook M1/M2/M3 için Metal Performance Shaders (MPS) desteği
-    pip install torch torchvision torchaudio --quiet
-else
-    # Linux - CUDA desteği (GPU varsa)
-    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --quiet
-fi
-
-echo "  - Diğer paketler yükleniyor..."
-pip install -q \
-    pandas \
-    numpy \
-    pyyaml \
-    scikit-learn \
-    matplotlib \
-    tqdm \
-    pillow \
-    jupyter \
-    ipython
-
+echo "Adım 3/4: Bağımlılıklar yükleniyor (birkaç dakika sürebilir)..."
+pip install --upgrade pip --quiet
+pip install -r requirements.txt --quiet
 echo "✓ Tüm paketler yüklendi"
-echo ""
 
-# Klasör yapısını oluştur
-echo "Adım 5: Klasör yapısı oluşturuluyor..."
-
-mkdir -p data/raw
-mkdir -p data/processed
-mkdir -p data/cropped_fields
-mkdir -p models
-mkdir -p logs
-mkdir -p logs/evaluation
-mkdir -p configs
-mkdir -p training
-mkdir -p notebooks
-
-echo "✓ Klasörler oluşturuldu"
+# Veri kontrolü
 echo ""
-
-# VPS veri indirme talimatları
-echo "Adım 6: Veri hazırlığı..."
-echo ""
-echo "📝 VPS'den label.csv dosyalarını indirmek için:"
-echo ""
-echo "  1. SSH ile VPS'ye bağlan:"
-echo "     ssh kullanici@vps_ip"
-echo ""
-echo "  2. CSV dosyalarını yerel bilgisayara kopyala:"
-echo "     scp kullanici@vps_ip:/path/to/label.csv data/raw/"
-echo ""
-echo "  3. Veya şu komutu çalıştır:"
-echo "     python3 training/download_from_vps.py"
-echo ""
-
-# Dataset hazırlama
-echo "Adım 7: Dataset hazırlığı..."
-echo ""
-
-if [ -f "data/raw/labels.csv" ] || [ "$(ls -A data/raw/*.csv 2>/dev/null)" ]; then
-    echo "ℹ CSV dosyaları bulundu. Dataset hazırlanıyor..."
-    python3 training/prepare_dataset.py
-    echo "✓ Dataset hazırlandı"
+echo "Adım 4/4: Veri kontrolü..."
+if [ -f "data/processed/train.csv" ]; then
+    echo "✓ Hazır split'ler bulundu (data/processed/)"
 else
-    echo "⚠ CSV dosyaları data/raw/ klasöründe bulunamadı"
-    echo "Lütfen önce VPS'den CSV dosyalarını indirin"
+    echo "ℹ Split'ler bulunamadı, oluşturuluyor..."
+    python3 training/prepare_dataset.py
 fi
-echo ""
 
-# Eğitim scriptlerinin izni
-chmod +x scripts/*.py
-chmod +x training/*.py 2>/dev/null || true
-echo ""
+IMG_COUNT=$(find data/cropped_fields -name "*.jpg" 2>/dev/null | wc -l | tr -d ' ')
+echo "✓ Görüntü sayısı: $IMG_COUNT"
 
 # Özet
+echo ""
 echo "╔════════════════════════════════════════════════════════════════╗"
 echo "║     KURULUM TAMAMLANDI ✓                                       ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
-echo "Sonraki Adımlar:"
+echo "Eğitimi başlatmak için:"
 echo ""
-echo "1️⃣  Dataset Hazırlama:"
-echo "   python3 training/prepare_dataset.py"
-echo ""
-echo "2️⃣  Model Eğitme:"
 echo "   python3 training/train_crnn.py"
 echo ""
-echo "3️⃣  Model Değerlendirme:"
+echo "Eğitim sonrası değerlendirme:"
+echo ""
 echo "   python3 training/evaluate_model.py"
 echo ""
-echo "4️⃣  Jupyter Notebook açma:"
-echo "   jupyter notebook"
-echo ""
-echo "ℹ Virtual environment'ı deaktif etmek için:"
-echo "   deactivate"
-echo ""
-echo "ℹ Gelecekte virtual environment'ı etkinleştirmek için:"
-echo "   source venv/bin/activate"
+echo "ℹ Yeni terminal oturumlarında önce venv'i etkinleştirin:"
+echo "   source $VENV_DIR/bin/activate"
 echo ""

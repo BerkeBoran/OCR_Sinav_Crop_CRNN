@@ -1,12 +1,30 @@
+# Virtual environments
 venv/
 .venv/
+env/
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
 
+# Secrets & local config
 .env
+configs/vps_config.json
 
+# IDE
 .idea/
+.vscode/
 
+# OS
+.DS_Store
+Thumbs.db
+
+# Training outputs (herkes kendi eğitim çıktısını üretir)
+logs/
+models/*.pth
+models/*.pt
+
+# Büyük ham veri (repo'ya dahil edilmez)
 data/roboflow_export/
