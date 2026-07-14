@@ -30,23 +30,25 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import multiprocessing
-
-Path('logs').mkdir(exist_ok=True)
-
-# Dosya log'u sadece ana süreçte aç — DataLoader worker'ları boş log oluşturmasın
-_handlers = [logging.StreamHandler()]
-if multiprocessing.parent_process() is None:
-    _handlers.append(
-        logging.FileHandler(f'logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log')
-    )
-
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=_handlers
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+def attach_file_logger():
+    """Eğitim logunu dosyaya da yaz — sadece gerçek eğitimde çağrılır.
+
+    Modül import'unda açılmaz: evaluate/predictor gibi bu modülü import eden
+    kodlar ve DataLoader worker'ları boş log dosyası oluşturmasın.
+    """
+    Path('logs').mkdir(exist_ok=True)
+    handler = logging.FileHandler(
+        f'logs/training_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+    )
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(handler)
 
 # Karakter seti: rakamlar. Index 0 CTC blank için ayrılmıştır.
 CHARSET = '0123456789'
@@ -516,6 +518,8 @@ def levenshtein(s1, s2):
 
 
 def main():
+    attach_file_logger()
+
     config_path = 'configs/training_config.yaml'
 
     if not Path(config_path).exists():
