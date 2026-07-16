@@ -36,3 +36,8 @@ data/mnist/
 
 # Merge sirasinda olusan yerel CSV yedekleri
 data/crnn_dataset/*.backup_*.csv
+
+# Ultralytics gecici egitim ciktilari
+runs/
+# YOLO alan tespit modeli repoya dahil (CRNN modeliyle ayni yontem)
+!models/yolo_fields.pt
