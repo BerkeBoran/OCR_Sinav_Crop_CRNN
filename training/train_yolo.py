@@ -27,7 +27,7 @@ OUTPUT_MODEL = PROJECT_ROOT / "models" / "yolo_fields.pt"
 LOG_DIR = PROJECT_ROOT / "logs" / "yolo"
 
 BASE_MODEL = "yolov8s.pt"
-EPOCHS = 100
+EPOCHS = 300
 # Tam sayfa fotoğrafta alanlar küçük kaldığı için yüksek çözünürlük kullanılır
 IMG_SIZE = 960
 BATCH_SIZE = 8
