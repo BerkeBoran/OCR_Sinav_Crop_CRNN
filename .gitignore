@@ -44,3 +44,7 @@ runs/
 
 # Ultralytics temel agirliklari (otomatik indirilir)
 yolov8s.pt
+
+# Sentetik uretilmis veri (yerelde uretilir, buyuk)
+data/synthetic_templates/
+data/combined_data.yaml
