@@ -1,0 +1,3 @@
+image_path,label,type,file_name,split,annotator,annotated_at
+data/cropped_fields_pending/ogrenci_numara/train_WhatsApp Image 2026-07-12 at 00-32-13_jpeg.rf.Yq8bArsKaekzf8L9WsG0_ogrenci_numara.jpg,211450015,ogrenci_numara,train_WhatsApp Image 2026-07-12 at 00-32-13_jpeg.rf.Yq8bArsKaekzf8L9WsG0_ogrenci_numara.jpg,train,Sevde,2026-07-16 11:23:52
+data/cropped_fields_pending/not/train_20260712_200904_jpg.rf.q3m6e8Dw269nh8Er7tJ9_not.jpg,78,not,train_20260712_200904_jpg.rf.q3m6e8Dw269nh8Er7tJ9_not.jpg,train,Sevde,2026-07-16 11:23:54
