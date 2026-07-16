@@ -208,13 +208,24 @@ def main():
     st.title("OCR Crop Labeling Tool")
     st.caption("Kırpılmış öğrenci numarası ve not görsellerini etiketleme aracı")
 
+    def count_crops(base_dir: Path) -> int:
+        return sum(
+            len(list((base_dir / field_type).glob(f"*{extension}")))
+            for field_type in FIELD_TYPES
+            for extension in IMAGE_EXTENSIONS
+            if (base_dir / field_type).exists()
+        )
+
     with st.sidebar:
         st.header("Ayarlar")
 
         dataset = st.selectbox(
             "Aktif Dataset",
             ["Mevcut Veriler", "Yeni Veriler (Kontrol Bekleyen)"],
-            help="Mevcut: 800 onaylı görsel | Yeni: 195 kontrol bekleyen görsel"
+            help=(
+                f"Mevcut: {count_crops(CROPPED_DIR)} onaylı görsel | "
+                f"Yeni: {count_crops(CROPPED_PENDING_DIR)} kontrol bekleyen görsel"
+            )
         )
         dataset_key = "pending" if "Yeni" in dataset else "main"
 
