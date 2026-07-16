@@ -107,3 +107,70 @@ if uploaded is not None:
                 f"- Model: `{text if text else '(boş)'}`\n"
                 f"- Fark: {fark} rakam"
             )
+
+        # Doğrulanan görseli veri setine ekle: görsel pending klasörüne,
+        # etiketi pending_labels.csv'ye yazılır; sıradaki birleştirmede
+        # (merge_pending_data.py) eğitim verisine katılır.
+        st.divider()
+        st.subheader("Veri Setine Ekle")
+        st.caption(
+            "Doğru değeriyle birlikte bu görsel eğitim verisine eklenir — "
+            "modelin yanlış okuduğu örnekler özellikle değerlidir."
+        )
+
+        sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
+        from labeling_tool import (
+            ANNOTATORS,
+            CROPPED_PENDING_DIR,
+            save_label,
+            to_relative_path,
+            validate_label,
+        )
+
+        tahmini_tur = "not" if gercek.isdigit() and len(gercek) <= 3 else "ogrenci_numara"
+
+        col_tur, col_kisi = st.columns(2)
+        with col_tur:
+            field_type = st.selectbox(
+                "Görsel türü",
+                ["ogrenci_numara", "not"],
+                index=["ogrenci_numara", "not"].index(tahmini_tur),
+            )
+        with col_kisi:
+            annotator = st.selectbox("Ekleyen kişi", ANNOTATORS)
+
+        if st.button("📥 Veri setine ekle", type="primary"):
+            is_valid, message = validate_label(field_type, gercek)
+
+            if not is_valid:
+                st.error(message)
+            else:
+                import hashlib
+                import io
+
+                buffer = io.BytesIO()
+                image.convert("RGB").save(buffer, format="JPEG", quality=95)
+                content = buffer.getvalue()
+
+                # İçerik hash'iyle adlandırma: aynı görsel iki kez eklenirse
+                # dosya ve etiket üzerine yazılır, çift kayıt oluşmaz.
+                digest = hashlib.md5(content).hexdigest()[:10]
+                file_name = f"upload_{digest}_{field_type}.jpg"
+
+                output_dir = CROPPED_PENDING_DIR / field_type
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = output_dir / file_name
+                output_path.write_bytes(content)
+
+                row = {
+                    "image_path": to_relative_path(output_path),
+                    "type": field_type,
+                    "file_name": file_name,
+                    "split": "upload",
+                }
+                save_label(row, gercek, annotator, dataset="pending")
+
+                st.success(
+                    f"✅ Eklendi: `{file_name}` — etiket: `{gercek}`. "
+                    "Sıradaki veri birleştirmesinde eğitim setine katılacak."
+                )

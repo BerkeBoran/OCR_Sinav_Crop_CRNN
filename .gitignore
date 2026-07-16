@@ -41,3 +41,6 @@ data/crnn_dataset/*.backup_*.csv
 runs/
 # YOLO alan tespit modeli repoya dahil (CRNN modeliyle ayni yontem)
 !models/yolo_fields.pt
+
+# Ultralytics temel agirliklari (otomatik indirilir)
+yolov8s.pt
