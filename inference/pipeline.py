@@ -50,16 +50,25 @@ class ExamReader:
 
         Returns:
             {
-                "ogrenci_numara": {"deger", "guven", "kutu_guven", "durum"},
+                "ogrenci_numara": {"deger", "guven", "kutu_guven", "kutu", "kirpim", "durum"},
                 "not": {...},
                 "kontrol_gerekli": bool,
             }
+            kutu: (x1, y1, x2, y2) tespit kutusu veya None
+            kirpim: kırpılmış PIL görsel veya None
             durum: "ok" | "dusuk_guven" | "gecersiz_deger" | "alan_bulunamadi"
         """
+        from PIL import ImageOps
+
         if not isinstance(image, Image.Image):
             image = Image.open(image)
 
-        crops = self.detector.crop_fields(image)
+        # Kutu koordinatları ile görselin aynı yönde olması için burada da
+        # exif_transpose uygulanır (detector zaten uyguluyor).
+        image = ImageOps.exif_transpose(image)
+
+        detections = self.detector.detect(image)
+        crops = self.detector.crop_fields(image, detections)
 
         result = {"kontrol_gerekli": False}
 
@@ -69,6 +78,8 @@ class ExamReader:
                     "deger": "",
                     "guven": 0.0,
                     "kutu_guven": 0.0,
+                    "kutu": None,
+                    "kirpim": None,
                     "durum": "alan_bulunamadi",
                 }
                 result["kontrol_gerekli"] = True
@@ -88,6 +99,8 @@ class ExamReader:
                 "deger": text,
                 "guven": read_conf,
                 "kutu_guven": box_conf,
+                "kutu": detections[field_type]["box"],
+                "kirpim": crop,
                 "durum": durum,
             }
 
