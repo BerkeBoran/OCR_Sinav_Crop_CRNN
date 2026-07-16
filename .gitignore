@@ -33,3 +33,6 @@ models/*.pt
 # Büyük ham veri (repo'ya dahil edilmez)
 data/roboflow_export/
 data/mnist/
+
+# Merge sirasinda olusan yerel CSV yedekleri
+data/crnn_dataset/*.backup_*.csv

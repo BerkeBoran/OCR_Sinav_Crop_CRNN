@@ -57,6 +57,16 @@ def merge_csv(main_path: Path, pending_path: Path):
         "data/cropped_fields_pending/", "data/cropped_fields/", regex=False
     )
 
+    # Bozuk satır koruması: dosyası olmayan satırlar (ör. eşzamanlı yazma
+    # sonucu başı kırpılmış kayıtlar) birleştirmeye alınmaz.
+    exists_mask = pending_df["image_path"].apply(lambda p: (PROJECT_ROOT / str(p)).exists())
+    dropped = pending_df[~exists_mask]
+    if not dropped.empty:
+        print(f"⚠️  {len(dropped)} satırın dosyası bulunamadı, atlandı:")
+        for path in dropped["image_path"].tolist():
+            print(f"   - {path}")
+    pending_df = pending_df[exists_mask]
+
     print(f"📊 Birleştiriliyor: {main_path.name}")
     print(f"   Mevcut: {len(main_df)} satır, Yeni: {len(pending_df)} satır")
 
@@ -107,6 +117,17 @@ def main():
     move_images(CROPPED_PENDING_DIR, CROPPED_DIR, "ogrenci_numara")
 
     print("\n3️⃣  CSV DOSYALARI BİRLEŞTİRİLİYOR...")
+
+    # Önce atlanıp sonra etiketlenen görsellerde etiket geçerlidir;
+    # bu görsellerin atlama kayıtları birleştirmeye alınmaz.
+    if PENDING_SKIPPED_PATH.exists() and PENDING_LABELS_PATH.exists():
+        labels_df = pd.read_csv(PENDING_LABELS_PATH, dtype=str)
+        skipped_df = pd.read_csv(PENDING_SKIPPED_PATH, dtype=str)
+        superseded = skipped_df["image_path"].isin(labels_df["image_path"])
+        if superseded.any():
+            print(f"⚠️  {superseded.sum()} atlama kaydı sonradan etiketlenmiş, atlandı.")
+            skipped_df[~superseded].to_csv(PENDING_SKIPPED_PATH, index=False, encoding="utf-8")
+
     merge_csv(LABELS_PATH, PENDING_LABELS_PATH)
     merge_csv(SKIPPED_PATH, PENDING_SKIPPED_PATH)
 
