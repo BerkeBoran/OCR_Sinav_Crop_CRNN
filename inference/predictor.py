@@ -12,7 +12,7 @@ from pathlib import Path
 
 import torch
 from torchvision import transforms
-from PIL import Image
+from PIL import Image, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from training.train_crnn import CRNN, BLANK_IDX, IDX_TO_CHAR
@@ -64,6 +64,9 @@ class CRNNPredictor:
         """
         if not isinstance(image, Image.Image):
             image = Image.open(image)
+
+        # Doğrudan yüklenen telefon fotoğrafları EXIF ile yan gelebilir
+        image = ImageOps.exif_transpose(image)
 
         tensor = self.transform(image.convert('L')).unsqueeze(0).to(self.device)
 

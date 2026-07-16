@@ -10,7 +10,7 @@ Kullanım:
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 DEFAULT_MODEL_PATH = Path(__file__).resolve().parents[1] / 'models' / 'yolo_fields.pt'
 
@@ -53,6 +53,10 @@ class FieldDetector:
         if not isinstance(image, Image.Image):
             image = Image.open(image)
 
+        # Telefon fotoğrafları EXIF orientation ile yan/ters gelebilir; PIL
+        # bunu otomatik uygulamadığı için model yan yatık alanları kaçırır.
+        image = ImageOps.exif_transpose(image)
+
         results = self.model.predict(
             source=image,
             conf=self.conf_threshold,
@@ -83,6 +87,8 @@ class FieldDetector:
         """
         if not isinstance(image, Image.Image):
             image = Image.open(image)
+
+        image = ImageOps.exif_transpose(image)
 
         if detections is None:
             detections = self.detect(image)
