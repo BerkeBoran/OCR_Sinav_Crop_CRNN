@@ -50,6 +50,13 @@ def merge_csv(main_path: Path, pending_path: Path):
         print(f"⚠️  {pending_path.name} boş, birleştirme yapılmadı")
         return
 
+    # Görseller pending klasöründen mevcut klasöre taşındığı için
+    # image_path de yeni konumu göstermeli; aksi halde eğitim dosyaları
+    # bulamaz ve etiketleme sitesi bu görselleri etiketlenmemiş sayar.
+    pending_df["image_path"] = pending_df["image_path"].str.replace(
+        "data/cropped_fields_pending/", "data/cropped_fields/", regex=False
+    )
+
     print(f"📊 Birleştiriliyor: {main_path.name}")
     print(f"   Mevcut: {len(main_df)} satır, Yeni: {len(pending_df)} satır")
 
