@@ -1,0 +1,4 @@
+image_path,type,file_name,split,reason,annotator,skipped_at
+data/cropped_fields_pending/ogrenci_numara/test_IMG-20260712-WA0008 2_jpg.rf.Mv3L6YPtJXidH51Naq5A_ogrenci_numara.jpg,ogrenci_numara,test_IMG-20260712-WA0008 2_jpg.rf.Mv3L6YPtJXidH51Naq5A_ogrenci_numara.jpg,test,okunamıyor veya hatalı crop,Aslı,2026-07-16 11:32:45
+data/cropped_fields_pending/ogrenci_numara/test_20260712_201348_jpg.rf.KywDlPnU7tFJP6VyNL05_ogrenci_numara.jpg,ogrenci_numara,test_20260712_201348_jpg.rf.KywDlPnU7tFJP6VyNL05_ogrenci_numara.jpg,test,okunamıyor veya hatalı crop,Sevde,2026-07-16 11:38:08
+data/cropped_fields_pending/ogrenci_numara/valid_IMG-20260712-WA0021_jpg.rf.5XYSYhOJKD3HNU5Kquoa_ogrenci_numara.jpg,ogrenci_numara,valid_IMG-20260712-WA0021_jpg.rf.5XYSYhOJKD3HNU5Kquoa_ogrenci_numara.jpg,valid,okunamıyor veya hatalı crop,Berke,2026-07-16 11:38:30
