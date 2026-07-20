@@ -104,27 +104,47 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ---
 
-## Geri dönüş (rollback)
+## Başka bir projeye geçiş (ve geri dönüş)
 
-Bu projeyi durdurun:
+VPS'te tek seferde tek yığın 80/443'ü kullanabilir. Geçiş için `down` değil
+**`stop`** kullanın: konteynerler silinmez, geri dönüş tek komuttur.
+
+**Bu projeyi durdurup diğerine geçmek:**
 
 ```bash
 cd /opt/ocr-sinav-crop-crnn
-docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml stop
+
+# Portların boşaldığını doğrula (çıktı boş olmalı)
+sudo ss -tlnp | grep -E ':80|:443|:8443'
+
+cd /path/to/diger-proje
+docker compose start      # daha önce sadece stop edildiyse
+# docker compose up -d    # konteynerleri kaldırılmışsa
 ```
 
-Eski yığını tekrar başlatın:
+**Bu projeye geri dönmek:**
 
 ```bash
-cd /path/to/eski-proje
-docker compose start
+cd /path/to/diger-proje
+docker compose stop
+
+cd /opt/ocr-sinav-crop-crnn
+docker compose -f docker-compose.prod.yml start
 ```
 
-80/443 portlarının eski yığına geri döndüğünü doğrulayın:
+Notlar:
 
-```bash
-sudo ss -tlnp | grep -E ':80|:443'
-```
+- **`-f docker-compose.prod.yml` bayrağını `stop`/`start`'ta da vermeyi
+  unutmayın.** Vermezseniz Compose `docker-compose.yml` (yerel geliştirme)
+  dosyasını okur ve nginx servisini hiç görmez — portlar boşalmaz.
+- Servisler `restart: unless-stopped` ile çalışıyor. Elle `stop` ettiğinizde
+  sunucu yeniden başlasa bile geri gelmezler; yani portları diğer projeden
+  geri çalmazlar.
+- **Veri güvende:** bu projede named volume yok, her şey `./data` ve
+  `./outputs` altında bind mount. `stop` da `down` da veriye dokunmaz.
+  Yalnızca `down -v` named volume siler — bu projede etkisi yok ama diğer
+  projelerde kullanmayın.
 
 ---
 
