@@ -74,9 +74,26 @@ Tarayıcı: `https://<DOMAIN>:8443`
 
 ---
 
-## 3. Projeyi kur (bir kez)
+## 2.5. Görselleri VPS'e taşı (ekipçe çalışıyorsanız)
+
+Görseller sizin bilgisayarınızda üretiliyor ama Label Studio VPS'te çalışıyor.
+Görselleri oraya kopyalamanız gerekir (git'e dahil değiller):
+
+```bash
+rsync -avz --progress data/labeling_images/sablon_1/ \
+  root@<VPS_IP>:/opt/ocr-sinav-crop-crnn/data/labeling_images/sablon_1/
+```
+
+`prepare_tasks.py` görselleri 1600 piksele küçülttüğü için boyut makuldür
+(200 görsel ≈ 100 MB). Görev dosyasını (`<parti>.json`) taşımanıza gerek yok —
+onu tarayıcıdan kendi bilgisayarınızdan yükleyeceksiniz.
+
+---
+
+## 3. Projeyi kur (her parti için bir kez)
 
 1. **Create Project** → ad: `Sinav Alan Tespiti`
+
 2. **Labeling Setup** → `Custom template` → `scripts/labelstudio/label_config.xml`
    içeriğini yapıştır → Save
 
@@ -84,11 +101,26 @@ Tarayıcı: `https://<DOMAIN>:8443`
    olmalı; YOLO sınıf indeksleri (0/1) bu sıradan üretiliyor.
 
 3. **Settings → Cloud Storage → Add Source Storage → Local files**
-   - Absolute local path: `/label-studio/files`
-   - Treat every bucket object as a source file: **kapalı**
-   - Save → **Sync**
 
-4. **Import** → `data/labelstudio_tasks/<parti>.json` dosyasını yükle
+   - Absolute local path: **`/label-studio/files/<parti>`**
+     (ör. `/label-studio/files/sablon_1`)
+   - Save
+
+   ⚠️ İki tuzak (ikisi de test edilip doğrulandı):
+
+   - **Yol, parti klasörü olmalı.** `/label-studio/files` (kök) yazarsanız
+     Label Studio güvenlik gerekçesiyle reddeder:
+     *"cannot be the same as LOCAL_FILES_DOCUMENT_ROOT"*. Her parti için
+     ayrı bir storage ekleyin.
+   - **Bu bağlantı olmadan görseller görünmez.** Ayarlar doğru olsa bile,
+     kayıtlı storage yoksa görsel isteği 404 döner.
+
+4. **Sync'e BASMAYIN.** Sync, klasördeki her dosya için sıfırdan görev
+   oluşturur; JSON'u da import edince her fotoğraf **iki kez** listeye girer
+   (testte 6 görev 12'ye çıktı) ve ön-etiketler ikinci kopyada olmaz.
+
+5. **Import** → `data/labelstudio_tasks/<parti>.json` dosyasını yükleyin.
+   Görevler ön-etiketleriyle birlikte gelir.
 
 ---
 
@@ -202,6 +234,8 @@ python3 training/train_crnn.py           # CRNN'i güncelle
   çalışıyorsanız asıl kopya oradadır; export alıp `merge_export.py` ile veri
   setine katana kadar git'te bir izi olmaz. Partiyi bitirir bitirmez export
   alıp katın.
-- Docker imajı `latest` olarak bırakıldı. Kurulum çalıştıktan sonra sürümü
-  sabitlemek isterseniz `docker compose images` ile mevcut etiketi görüp
-  compose dosyasında sabitleyebilirsiniz.
+- Docker imajı **1.23.0** sürümüne sabitlendi — bu rehberdeki adımlar o
+  sürümde test edildi. Sürüm yükseltirseniz özellikle Local Storage
+  davranışını yeniden doğrulayın; Label Studio bu alanda sürümler arasında
+  değişiklik yapıyor (ör. 1.23'te eski API token'ları varsayılan olarak
+  kapalı geliyor).

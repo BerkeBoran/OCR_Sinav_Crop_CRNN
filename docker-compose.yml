@@ -10,7 +10,7 @@ services:
 
   # Yerel etiketleme: http://localhost:8080
   labelstudio:
-    image: heartexlabs/label-studio:latest
+    image: heartexlabs/label-studio:1.23.0
     ports:
       - "127.0.0.1:8080:8080"
     environment:
