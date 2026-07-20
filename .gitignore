@@ -48,3 +48,8 @@ yolov8s.pt
 # Sentetik uretilmis veri (yerelde uretilir, buyuk)
 data/synthetic_templates/
 data/combined_data.yaml
+
+# Label Studio (yerel veritabani ve etiketlenecek gorseller)
+data/labelstudio/
+data/labeling_images/
+data/labelstudio_tasks/

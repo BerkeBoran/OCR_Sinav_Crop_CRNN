@@ -7,3 +7,16 @@ services:
       - ./data:/app/data
       - ./outputs:/app/outputs
     restart: unless-stopped
+
+  # Yerel etiketleme: http://localhost:8080
+  labelstudio:
+    image: heartexlabs/label-studio:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files
+    volumes:
+      - ./data/labelstudio:/label-studio/data
+      - ./data/labeling_images:/label-studio/files:ro
+    restart: unless-stopped

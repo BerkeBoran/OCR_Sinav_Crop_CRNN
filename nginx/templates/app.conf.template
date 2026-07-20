@@ -31,3 +31,33 @@ server {
         proxy_read_timeout 86400;
     }
 }
+
+# Label Studio (kutu etiketleme) — ayrı port, aynı sertifika.
+# Alt yol (/label) yerine port kullanılıyor: Label Studio alt yolda
+# statik dosya/yönlendirme sorunları çıkarıyor, port ayrımı sorunsuz.
+server {
+    listen 8443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+
+    # Etiketleme sırasında toplu görsel yüklemeye izin ver
+    client_max_body_size 500m;
+
+    location / {
+        proxy_pass http://labelstudio:8080;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Port dahil Host: Label Studio mutlak URL'leri buna göre üretir
+        proxy_set_header Host $host:8443;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 86400;
+    }
+}

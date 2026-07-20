@@ -1,0 +1,23 @@
+<!--
+Label Studio etiketleme arayüzü — sınav kağıdında alan tespiti.
+
+ÖNEMLİ: Etiket sırası data/roboflow_export/data.yaml ile AYNI olmalı
+(not = 0, ogrenci_numara = 1). Label Studio YOLO export'unda sınıf
+indeksleri bu sıraya göre üretilir; sıra değişirse veri seti bozulur.
+-->
+<View>
+  <Header value="Öğrenci numarası ve not alanlarını kutu içine alın"/>
+
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false"/>
+
+  <RectangleLabels name="label" toName="image">
+    <Label value="not" background="#e6194b"/>
+    <Label value="ogrenci_numara" background="#3cb44b"/>
+  </RectangleLabels>
+
+  <Choices name="durum" toName="image" choice="single" showInLine="true">
+    <Choice value="temiz"/>
+    <Choice value="okunamiyor"/>
+    <Choice value="alan_yok"/>
+  </Choices>
+</View>

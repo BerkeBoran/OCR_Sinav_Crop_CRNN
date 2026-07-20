@@ -8,15 +8,34 @@ services:
       - ./outputs:/app/outputs
     restart: unless-stopped
 
+  # Ekip için kutu etiketleme aracı — https://<DOMAIN>:8443
+  # Görseller salt-okunur bağlanır; Label Studio yalnızca kendi veritabanına yazar.
+  labelstudio:
+    image: heartexlabs/label-studio:latest
+    expose:
+      - "8080"
+    environment:
+      - LABEL_STUDIO_HOST=https://${DOMAIN}:8443
+      - LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED=true
+      - LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT=/label-studio/files
+      # Davet bağlantısı olmadan kayıt kapalı: rastgele kişiler hesap açamaz
+      - LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK=true
+    volumes:
+      - ./data/labelstudio:/label-studio/data
+      - ./data/labeling_images:/label-studio/files:ro
+    restart: unless-stopped
+
   nginx:
     image: nginx:alpine
     depends_on:
       - app
+      - labelstudio
     environment:
       - DOMAIN=${DOMAIN}
     ports:
       - "80:80"
       - "443:443"
+      - "8443:8443"
     volumes:
       - ./nginx/templates:/etc/nginx/templates:ro
       - /etc/letsencrypt/live/${DOMAIN}/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
