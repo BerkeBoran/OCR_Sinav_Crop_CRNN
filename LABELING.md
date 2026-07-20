@@ -92,6 +92,62 @@ Tarayıcı: `https://<DOMAIN>:8443`
 
 ---
 
+## 3.5. Ekipçe çalışma
+
+### Hesaplar
+
+1. **İlk kişi** (yönetici) `https://<DOMAIN>:8443` adresinden hesap açar.
+   Bu kişi organizasyonun sahibi olur.
+2. Sağ üst → **Organization** → **Invite people** → çıkan **davet bağlantısını**
+   kopyalayıp ekibe gönderir.
+3. Diğerleri o bağlantıyla kendi hesabını açar. Bağlantı olmadan kayıt
+   kapalıdır — dışarıdan kimse giremez.
+
+### İş bölümü — iki seçenek
+
+**A) Ortak kuyruk (önerilen, kurulum yok)**
+
+Herkes aynı projeye girer, **Label Next Task** ile sıradaki görevi alır.
+Label Studio görevi açan kişi için kilitler ve bir görev tamamlandıktan sonra
+başkasına göstermez — yani **aynı fotoğrafı iki kişi etiketlemez**, kimin ne
+zaman çalıştığını koordine etmenize gerek kalmaz.
+
+**B) Parti başına ayrı proje (takibi kolay)**
+
+Her şablon partisi için ayrı proje açıp (`Şablon 1`, `Şablon 2`, …) kişi
+başına bir parti verirsiniz. Kimin nerede olduğu net görünür, ama her proje
+için ayarları (etiket şeması + Local files) tekrar kurmanız gerekir.
+
+> 4 kişi ve birkaç yüz görsel için **A** yeterli. Kişi başı sorumluluk
+> istiyorsanız B'ye geçin.
+
+### Kontrol edilmesi gereken ayar
+
+**Settings → Annotation → Overlap / "Annotations per task"** değeri **1**
+olmalı (varsayılan). 2 yaparsanız her fotoğrafı iki kişi etiketler — ölçüm
+için faydalı ama iş yükü ikiye katlanır.
+
+### Başlamadan önce: 5 dakikalık kalibrasyon
+
+Ekipçe **aynı 5 fotoğrafı** birlikte etiketleyip kutuları karşılaştırın.
+Herkes kutuyu aynı yerden başlatıp aynı yerde bitirmeli (bkz. aşağıdaki
+kurallar). Bu 5 dakika, sonradan tutarsız veriyle model eğitmekten çok daha
+ucuza gelir.
+
+### İlerleme takibi
+
+Proje ana ekranında toplam / tamamlanan görev sayısı görünür. Kişi bazlı
+dağılım için **Members** sekmesine bakabilirsiniz.
+
+### Dürüst sınır
+
+Açık kaynak (Community) sürümde **rol ayrımı ve onay/red (review) akışı
+yoktur**: organizasyondaki herkes projeyi görebilir ve birbirinin etiketini
+değiştirebilir. 4 kişilik güvenilir bir ekip için sorun değil, ama "sadece
+şu kişi düzeltsin" gibi bir kısıt kurmak mümkün değil.
+
+---
+
 ## 4. Etiketleme kuralları (ekip için)
 
 - Kutu, **basılı etiketi de içerecek** şekilde çizilir: "Öğrenci No: 22145004"
