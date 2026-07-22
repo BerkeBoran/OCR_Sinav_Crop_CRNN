@@ -1,0 +1,19 @@
+services:
+  flutter:
+    build:
+      context: docker/flutter
+      dockerfile: Dockerfile
+      args:
+        FLUTTER_VERSION: "3.44.0"
+
+    working_dir: /workspace
+
+    volumes:
+      - .:/workspace
+      - flutter_pub_cache:/root/.pub-cache
+
+    stdin_open: true
+    tty: true
+
+volumes:
+  flutter_pub_cache:
